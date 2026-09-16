@@ -16,6 +16,15 @@ export function Header() {
           <Link href="/trends" className="hover:text-foreground">
             趨勢預警
           </Link>
+          <Link href="/lots" className="hover:text-foreground">
+            品質摘要
+          </Link>
+          <Link href="/wafer-map" className="hover:text-foreground">
+            Wafer Map
+          </Link>
+          <Link href="/explainer" className="hover:text-foreground">
+            結果解釋器
+          </Link>
         </nav>
       </div>
     </header>

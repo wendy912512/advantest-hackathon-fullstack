@@ -41,13 +41,22 @@ export interface SiteSummary {
   anomalyReason?: string;
 }
 
+export interface BinBreakdown {
+  bin: number;
+  label: string;
+  count: number;
+  ratio: number; // 0-1
+}
+
 export interface LotSummary {
   lot: string;
   wafer: string;
   totalDevices: number;
   passRate: number;
-  softBinDistribution: Record<number, number>;
-  hardBinDistribution: Record<number, number>;
+  siteSummaries: SiteSummary[];
+  softBinBreakdown: BinBreakdown[];
+  hardBinBreakdown: BinBreakdown[];
+  suspectIssues: string[];
 }
 
 export type TrendDirection = "UP" | "DOWN" | "STABLE" | "SHIFT";
@@ -75,6 +84,32 @@ export interface TrendSeries {
   ucl: number; // baselineMean + 3 * baselineStdDev
   lcl: number; // baselineMean - 3 * baselineStdDev
   alerts: TrendAlert[];
+}
+
+export interface WaferPoint {
+  pid: string;
+  x: number;
+  y: number;
+  pf: PassFail;
+  softBin: number;
+}
+
+export interface WaferMapData {
+  lot: string;
+  wafer: string;
+  radius: number;
+  points: WaferPoint[];
+}
+
+export interface FailureExplanation {
+  pid: string;
+  site: number;
+  testSuiteName: string;
+  value: number;
+  softBin: number;
+  binLabel: string;
+  summary: string;
+  reasons: string[];
 }
 
 export interface DashboardSnapshot {

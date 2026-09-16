@@ -1,11 +1,16 @@
 import type {
+  BinBreakdown,
   DashboardSnapshot,
   DeviceInfo,
   DeviceTestResult,
+  FailureExplanation,
+  LotSummary,
   SiteSummary,
   TrendAlert,
   TrendPoint,
   TrendSeries,
+  WaferMapData,
+  WaferPoint,
 } from "./types";
 
 // 模擬 ONEAPI consumeData() 收到的即時測試資料。
@@ -15,6 +20,29 @@ const SITE_COUNT = 4;
 const IMBALANCED_SITE = 2; // demo：讓 Site 2 出現 imbalance
 const TEST_SUITE_NAME = "VDD_LEAKAGE";
 const TEST_NUMBER = 1042;
+
+// Bin 對照表（demo 假資料，真實對照要工程師提供，見 Notion 對齊表）
+const SOFT_BIN_LABELS: Record<number, string> = {
+  1: "Pass",
+  2: "Leakage Fail",
+  3: "Timing Fail",
+  4: "Functional Fail",
+};
+const SITE_PASS_RATE_THRESHOLD = 0.85; // demo 用門檻，真實門檻需與工程師確認
+const BIN_RATIO_ALERT_THRESHOLD = 0.05; // 單一失敗 bin 佔比超過 5% 視為疑似系統性問題（demo 用）
+
+// Wafer map 參數（demo 用，真實晶圓尺寸/座標系統需與工程師確認，見 Notion 對齊表）
+const WAFER_RADIUS = 20;
+const WAFER_POINT_COUNT = 320;
+const WAFER_EDGE_RING_RATIO = 0.78; // 超過此比例半徑視為「邊緣」，demo 用來模擬 edge die effect
+
+// 測試結果解釋器：bin 對應的失敗原因說明（demo 用規則式文字，真實原因需由工程師/模型判斷提供）
+const BIN_CAUSE_HINTS: Record<number, string> = {
+  2: "疑似漏電流（leakage）超出規格，常見原因為製程缺陷或 ESD 損傷",
+  3: "疑似時序（timing）不符合，常見原因為時脈偏移或訊號完整性問題",
+  4: "疑似功能性測試失敗，常見原因為邏輯錯誤或圖案敏感缺陷",
+};
+const PASS_LIMIT = 1.6; // 對齊 generateDevice() 的 pass 門檻，真實 spec limit 需與工程師確認
 
 // 趨勢判斷規則參數（demo 用固定值，真實規則需與後端/工程師確認，見 Notion 對齊表）
 const TREND_BASELINE_WINDOW = 10; // 前 N 點做為 baseline，算 mean/std
@@ -60,7 +88,7 @@ function generateDevice(site: number, lot: string, wafer: string, rand: () => nu
     isImbalanced ? baseMean + 0.35 : baseMean,
     isImbalanced ? baseStd * 1.6 : baseStd,
   );
-  const pass = value < 1.6;
+  const pass = value < PASS_LIMIT;
 
   const device: DeviceInfo = {
     pid: `DEV-${lot}-${wafer}-${sequence.toString().padStart(5, "0")}`,
@@ -306,4 +334,129 @@ export function generateDashboardSnapshot(): DashboardSnapshot {
     trendAlerts,
     recentResults: results.slice(-15).reverse(),
   };
+}
+
+function binBreakdown(devices: DeviceInfo[], pick: (d: DeviceInfo) => number): BinBreakdown[] {
+  const counts = new Map<number, number>();
+  for (const d of devices) {
+    const bin = pick(d);
+    counts.set(bin, (counts.get(bin) ?? 0) + 1);
+  }
+
+  return Array.from(counts.entries())
+    .map(([bin, count]) => ({
+      bin,
+      label: SOFT_BIN_LABELS[bin] ?? `Bin ${bin}`,
+      count,
+      ratio: count / devices.length,
+    }))
+    .sort((a, b) => b.count - a.count);
+}
+
+export function generateLotSummary(): LotSummary {
+  const results = generateMockResults();
+  const devices = results.map((r) => r.device);
+  const siteSummaries = summarizeBySite(results);
+  const passCount = devices.filter((d) => d.pf === "PASS").length;
+
+  const softBinBreakdown = binBreakdown(devices, (d) => d.softBin);
+  const hardBinBreakdown = binBreakdown(devices, (d) => d.hardBin);
+
+  const suspectIssues: string[] = [];
+  for (const s of siteSummaries) {
+    if (s.passRate < SITE_PASS_RATE_THRESHOLD) {
+      suspectIssues.push(
+        `Site ${s.site} pass rate 為 ${(s.passRate * 100).toFixed(1)}%，低於門檻 ${(SITE_PASS_RATE_THRESHOLD * 100).toFixed(0)}%`,
+      );
+    }
+  }
+  for (const b of softBinBreakdown) {
+    if (b.bin !== 1 && b.ratio > BIN_RATIO_ALERT_THRESHOLD) {
+      suspectIssues.push(
+        `Soft Bin ${b.bin}（${b.label}）佔比達 ${(b.ratio * 100).toFixed(1)}%，疑似系統性失效`,
+      );
+    }
+  }
+
+  return {
+    lot: devices[0]?.lot ?? "-",
+    wafer: devices[0]?.wafer ?? "-",
+    totalDevices: devices.length,
+    passRate: passCount / devices.length,
+    siteSummaries,
+    softBinBreakdown,
+    hardBinBreakdown,
+    suspectIssues,
+  };
+}
+
+export function generateWaferMapData(): WaferMapData {
+  const rand = seededRandom(2026);
+  const points: WaferPoint[] = [];
+
+  for (let i = 0; i < WAFER_POINT_COUNT; i += 1) {
+    // 用極座標均勻取樣圓盤內的點（demo 用晶圓座標，真實座標系統/notch 方向需與工程師確認）
+    const angle = rand() * 2 * Math.PI;
+    const r = WAFER_RADIUS * Math.sqrt(rand());
+    const x = Math.round(r * Math.cos(angle));
+    const y = Math.round(r * Math.sin(angle));
+
+    // demo：邊緣區域失敗率明顯較高，模擬 edge die effect 這種空間異常
+    const isEdge = r > WAFER_RADIUS * WAFER_EDGE_RING_RATIO;
+    const failProbability = isEdge ? 0.45 : 0.05;
+    const pass = rand() > failProbability;
+
+    points.push({
+      pid: `DEV-WAFER-${i.toString().padStart(4, "0")}`,
+      x,
+      y,
+      pf: pass ? "PASS" : "FAIL",
+      softBin: pass ? 1 : 2 + Math.floor(rand() * 3),
+    });
+  }
+
+  return {
+    lot: "LOT-2026-0091",
+    wafer: "W07",
+    radius: WAFER_RADIUS,
+    points,
+  };
+}
+
+export function explainFailures(limit = 8): FailureExplanation[] {
+  const results = generateMockResults();
+  const siteSummaries = summarizeBySite(results);
+  const siteBySite = new Map(siteSummaries.map((s) => [s.site, s]));
+  const fails = results.filter((r) => r.device.pf === "FAIL").slice(0, limit);
+
+  return fails.map((r) => {
+    const value = r.results[0]?.value ?? 0;
+    const overLimit = value - PASS_LIMIT;
+    const site = siteBySite.get(r.device.site);
+    const binCause =
+      BIN_CAUSE_HINTS[r.device.softBin] ?? "尚無對照的失敗原因說明，需要工程師補充 bin definition";
+
+    const reasons = [
+      `量測值 ${value.toFixed(3)}，超出 PASS 門檻 ${PASS_LIMIT} 達 ${overLimit.toFixed(3)}`,
+      binCause,
+    ];
+    if (site?.isAnomalous) {
+      reasons.push(
+        `Site ${r.device.site} 整體平均值偏離其他 site（${site.anomalyReason}），此 device 的失敗可能與 site 系統性問題有關，而非單一 device 本身的缺陷`,
+      );
+    }
+
+    return {
+      pid: r.device.pid,
+      site: r.device.site,
+      testSuiteName: r.results[0]?.testSuiteName ?? TEST_SUITE_NAME,
+      value,
+      softBin: r.device.softBin,
+      binLabel: SOFT_BIN_LABELS[r.device.softBin] ?? `Bin ${r.device.softBin}`,
+      summary: site?.isAnomalous
+        ? `疑似 Site ${r.device.site} 系統性問題（site imbalance），建議優先排查 site 而非單一 device`
+        : binCause,
+      reasons,
+    };
+  });
 }
