@@ -4,6 +4,8 @@ import type {
   DeviceTestResult,
   SiteSummary,
   TrendAlert,
+  TrendPoint,
+  TrendSeries,
 } from "./types";
 
 // 模擬 ONEAPI consumeData() 收到的即時測試資料。
@@ -13,6 +15,13 @@ const SITE_COUNT = 4;
 const IMBALANCED_SITE = 2; // demo：讓 Site 2 出現 imbalance
 const TEST_SUITE_NAME = "VDD_LEAKAGE";
 const TEST_NUMBER = 1042;
+
+// 趨勢判斷規則參數（demo 用固定值，真實規則需與後端/工程師確認，見 Notion 對齊表）
+const TREND_BASELINE_WINDOW = 10; // 前 N 點做為 baseline，算 mean/std
+const TREND_CONSECUTIVE_RUN = 6; // 連續 N 點單邊上升/下降算 trend
+const TREND_SHIFT_RUN = 8; // 連續 N 點落在 baseline mean 同一側算 shift
+const TREND_POINT_INTERVAL_MS = 2 * 60_000; // 每點間隔 2 分鐘
+const TREND_SERIES_LENGTH = 30;
 
 function seededRandom(seed: number) {
   let value = seed;
@@ -128,12 +137,153 @@ export function summarizeBySite(results: DeviceTestResult[]): SiteSummary[] {
   return summaries;
 }
 
-export function generateTrendAlerts(siteSummaries: SiteSummary[]): TrendAlert[] {
+// site 各自的模擬趨勢模式：stable（正常）、drift-up（緩慢漂移）、level-shift（某時間點後突然位移）
+type TrendPattern = "stable" | "drift-up" | "level-shift";
+
+const SITE_TREND_PATTERN: Record<number, TrendPattern> = {
+  1: "stable",
+  2: "stable", // Site 2 的異常屬於 imbalance（見 summarizeBySite），不重複做成 trend
+  3: "drift-up",
+  4: "level-shift",
+};
+
+function generateSeriesValues(site: number, rand: () => number): number[] {
+  const baseMean = site === IMBALANCED_SITE ? 1.2 + 0.35 : 1.2;
+  const baseStd = 0.08;
+  const pattern = SITE_TREND_PATTERN[site] ?? "stable";
+  const values: number[] = [];
+
+  for (let i = 0; i < TREND_SERIES_LENGTH; i += 1) {
+    let pointMean = baseMean;
+    if (pattern === "drift-up") {
+      pointMean += (i / TREND_SERIES_LENGTH) * 0.4; // 逐漸往上漂移
+    } else if (pattern === "level-shift" && i >= TREND_SERIES_LENGTH * 0.6) {
+      pointMean += 0.3; // 後段整體位移
+    }
+    values.push(gaussian(rand, pointMean, baseStd));
+  }
+  return values;
+}
+
+function longestRun(direction: (a: number, b: number) => boolean, values: number[]): number {
+  let longest = 1;
+  let current = 1;
+  for (let i = 1; i < values.length; i += 1) {
+    if (direction(values[i - 1], values[i])) {
+      current += 1;
+      longest = Math.max(longest, current);
+    } else {
+      current = 1;
+    }
+  }
+  return longest;
+}
+
+function detectTrendAlerts(site: number, points: TrendPoint[], baselineMean: number, baselineStdDev: number): TrendAlert[] {
   const alerts: TrendAlert[] = [];
+  const values = points.map((p) => p.value);
+  const ucl = baselineMean + 3 * baselineStdDev;
+  const lcl = baselineMean - 3 * baselineStdDev;
+
+  const outOfControl = values.some((v) => v > ucl || v < lcl);
+  if (outOfControl) {
+    alerts.push({
+      id: `trend-${site}-ooc`,
+      site,
+      testSuiteName: TEST_SUITE_NAME,
+      direction: "SHIFT",
+      detectedAt: new Date().toISOString(),
+      message: `量測值超出管制界線（UCL ${ucl.toFixed(3)} / LCL ${lcl.toFixed(3)}）`,
+    });
+  }
+
+  const risingRun = longestRun((a, b) => b > a, values);
+  const fallingRun = longestRun((a, b) => b < a, values);
+  if (risingRun >= TREND_CONSECUTIVE_RUN) {
+    alerts.push({
+      id: `trend-${site}-up`,
+      site,
+      testSuiteName: TEST_SUITE_NAME,
+      direction: "UP",
+      detectedAt: new Date().toISOString(),
+      message: `連續 ${risingRun} 點持續上升，疑似製程漂移`,
+    });
+  } else if (fallingRun >= TREND_CONSECUTIVE_RUN) {
+    alerts.push({
+      id: `trend-${site}-down`,
+      site,
+      testSuiteName: TEST_SUITE_NAME,
+      direction: "DOWN",
+      detectedAt: new Date().toISOString(),
+      message: `連續 ${fallingRun} 點持續下降，疑似製程漂移`,
+    });
+  }
+
+  const lastRun = values.slice(-TREND_SHIFT_RUN);
+  if (lastRun.length === TREND_SHIFT_RUN) {
+    const allAbove = lastRun.every((v) => v > baselineMean);
+    const allBelow = lastRun.every((v) => v < baselineMean);
+    if ((allAbove || allBelow) && !outOfControl) {
+      alerts.push({
+        id: `trend-${site}-shift`,
+        site,
+        testSuiteName: TEST_SUITE_NAME,
+        direction: "SHIFT",
+        detectedAt: new Date().toISOString(),
+        message: `最近 ${TREND_SHIFT_RUN} 點全部落在 baseline 平均值同一側，疑似整體位移`,
+      });
+    }
+  }
+
+  return alerts;
+}
+
+export function generateTrendSeries(): TrendSeries[] {
+  const rand = seededRandom(88);
+  const series: TrendSeries[] = [];
+
+  for (let site = 1; site <= SITE_COUNT; site += 1) {
+    const values = generateSeriesValues(site, rand);
+    const now = Date.now();
+    const points: TrendPoint[] = values.map((value, i) => ({
+      timestamp: new Date(
+        now - (TREND_SERIES_LENGTH - 1 - i) * TREND_POINT_INTERVAL_MS,
+      ).toISOString(),
+      value: Number(value.toFixed(4)),
+    }));
+
+    const baselineValues = values.slice(0, TREND_BASELINE_WINDOW);
+    const baselineMean = mean(baselineValues);
+    const baselineStdDev = stdDev(baselineValues);
+    const alerts = detectTrendAlerts(site, points, baselineMean, baselineStdDev);
+
+    series.push({
+      site,
+      testSuiteName: TEST_SUITE_NAME,
+      points,
+      baselineMean: Number(baselineMean.toFixed(4)),
+      baselineStdDev: Number(baselineStdDev.toFixed(4)),
+      ucl: Number((baselineMean + 3 * baselineStdDev).toFixed(4)),
+      lcl: Number((baselineMean - 3 * baselineStdDev).toFixed(4)),
+      alerts,
+    });
+  }
+
+  return series;
+}
+
+export function generateDashboardSnapshot(): DashboardSnapshot {
+  const results = generateMockResults();
+  const siteSummaries = summarizeBySite(results);
+  const trendSeries = generateTrendSeries();
+  const passCount = results.filter((r) => r.device.pf === "PASS").length;
+
+  // 合併 imbalance 告警（來自 siteSummaries）與趨勢告警（來自 trendSeries），避免同一 site 重複顯示
+  const trendAlerts: TrendAlert[] = [];
   for (const s of siteSummaries) {
     if (s.isAnomalous) {
-      alerts.push({
-        id: `alert-site-${s.site}`,
+      trendAlerts.push({
+        id: `alert-site-${s.site}-imbalance`,
         site: s.site,
         testSuiteName: TEST_SUITE_NAME,
         direction: "SHIFT",
@@ -142,14 +292,9 @@ export function generateTrendAlerts(siteSummaries: SiteSummary[]): TrendAlert[] 
       });
     }
   }
-  return alerts;
-}
-
-export function generateDashboardSnapshot(): DashboardSnapshot {
-  const results = generateMockResults();
-  const siteSummaries = summarizeBySite(results);
-  const trendAlerts = generateTrendAlerts(siteSummaries);
-  const passCount = results.filter((r) => r.device.pf === "PASS").length;
+  for (const series of trendSeries) {
+    trendAlerts.push(...series.alerts);
+  }
 
   return {
     generatedAt: new Date().toISOString(),

@@ -13,6 +13,9 @@ export function Header() {
           <Link href="/" className="hover:text-foreground">
             儀表板
           </Link>
+          <Link href="/trends" className="hover:text-foreground">
+            趨勢預警
+          </Link>
         </nav>
       </div>
     </header>

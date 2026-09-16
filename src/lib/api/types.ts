@@ -61,6 +61,22 @@ export interface TrendAlert {
   message: string;
 }
 
+export interface TrendPoint {
+  timestamp: string; // ISO
+  value: number;
+}
+
+export interface TrendSeries {
+  site: number;
+  testSuiteName: string;
+  points: TrendPoint[];
+  baselineMean: number;
+  baselineStdDev: number;
+  ucl: number; // baselineMean + 3 * baselineStdDev
+  lcl: number; // baselineMean - 3 * baselineStdDev
+  alerts: TrendAlert[];
+}
+
 export interface DashboardSnapshot {
   generatedAt: string;
   currentLot: string;
