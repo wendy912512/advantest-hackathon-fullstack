@@ -14,17 +14,17 @@
 | --- | --- | --- |
 | 即時異常監控面板 | Lot/Wafer 概況、各 Site 分布卡片（mean/std/pass rate）、異常告警清單、最新測試結果表，5 秒輪詢模擬即時更新 | `src/app/page.tsx` |
 | Site imbalance 偵測 | Site 詳情頁可比較與其他 site 的 mean 差異，超過閾值標紅示警 | `src/app/sites/[id]/page.tsx` |
+| 測試趨勢預警 | 每個 site 建立 baseline（mean ± 3σ 為 UCL/LCL），偵測超出管制界線、連續上升/下降（≥6 點）、連續同側位移（8 點）。Dashboard 異常告警清單已改用真正的趨勢判斷結果 | `src/app/trends/page.tsx`、`src/lib/api/trends.ts` |
 
-目前使用 Mock 資料層（`src/lib/api/mock.ts`）模擬 ONEAPI 事件，後端就緒後只需改 `src/lib/api/dashboard.ts`、`src/lib/api/sites.ts` 內部實作，其餘元件不需更動。
+目前使用 Mock 資料層（`src/lib/api/mock.ts`）模擬 ONEAPI 事件，後端就緒後只需改 `src/lib/api/dashboard.ts`、`src/lib/api/sites.ts`、`src/lib/api/trends.ts` 內部實作，其餘元件不需更動。
 
 ## 尚未開發 ❌
 
 | 優先序 | 頁面/功能 | 簡報原文說明 | 備註 |
 | --- | --- | --- | --- |
-| 1 | 測試趨勢預警 | 偵測數值持續上升/下降、標準差改變、或某時間點整體位移（trend issue） | 需要擴充 mock 資料產生「時間序列」而非單一快照；建議用 Control Chart（UCL/LCL）呈現 |
-| 2 | 批次/晶圓品質摘要 | 以 lot、wafer、site 為層級產生 pass rate、bin 分布與疑似問題清單 | `LotSummary` 型別已在 `src/lib/api/types.ts` 定義，尚未接功能與頁面 |
-| 3 | Wafer map 熱區圖 | 簡報未直接列為頁面，但資料含 X/Y 座標，適合做空間異常視覺化 | 圓形晶圓熱區圖，demo 效果最好 |
-| 4 | 測試結果解釋器 | 把測試欄位、pin、site 與模型判斷轉成工程師可讀的原因說明 | 工作量最大，仰賴規則引擎或模型判斷，建議放最後 |
+| 1 | 批次/晶圓品質摘要 | 以 lot、wafer、site 為層級產生 pass rate、bin 分布與疑似問題清單 | `LotSummary` 型別已在 `src/lib/api/types.ts` 定義，尚未接功能與頁面 |
+| 2 | Wafer map 熱區圖 | 簡報未直接列為頁面，但資料含 X/Y 座標，適合做空間異常視覺化 | 圓形晶圓熱區圖，demo 效果最好 |
+| 3 | 測試結果解釋器 | 把測試欄位、pin、site 與模型判斷轉成工程師可讀的原因說明 | 工作量最大，仰賴規則引擎或模型判斷，建議放最後 |
 
 ---
 
@@ -69,7 +69,7 @@
 
 ## 建議開發順序
 
-1. 測試趨勢預警（簡報明確提到，可直接延伸現有資料）
+1. ~~測試趨勢預警~~（已完成）
 2. 批次/晶圓品質摘要（型別已定義，實作量相對小）
 3. Wafer map 熱區圖（demo 效果最好）
 4. 測試結果解釋器（工作量最大，留到最後）
