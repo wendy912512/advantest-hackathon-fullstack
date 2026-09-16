@@ -15,16 +15,15 @@
 | 即時異常監控面板 | Lot/Wafer 概況、各 Site 分布卡片（mean/std/pass rate）、異常告警清單、最新測試結果表，5 秒輪詢模擬即時更新 | `src/app/page.tsx` |
 | Site imbalance 偵測 | Site 詳情頁可比較與其他 site 的 mean 差異，超過閾值標紅示警 | `src/app/sites/[id]/page.tsx` |
 | 測試趨勢預警 | 每個 site 建立 baseline（mean ± 3σ 為 UCL/LCL），偵測超出管制界線、連續上升/下降（≥6 點）、連續同側位移（8 點）。Dashboard 異常告警清單已改用真正的趨勢判斷結果 | `src/app/trends/page.tsx`、`src/lib/api/trends.ts` |
+| 批次/晶圓品質摘要 | Lot/Wafer 層級的 pass rate、Soft/Hard Bin Pareto 圖、規則式疑似問題清單（site pass rate 過低、單一失敗 bin 佔比過高） | `src/app/lots/page.tsx`、`src/lib/api/lots.ts` |
+| Wafer map 熱區圖 | 圓形晶圓分布圖，依 X/Y 座標畫出每顆 device 的 pass/fail，demo 資料刻意模擬邊緣失敗率較高的 edge die effect | `src/app/wafer-map/page.tsx`、`src/lib/api/wafer.ts` |
+| 測試結果解釋器 | 把失敗 device 的測試欄位、bin、site 脈絡轉成工程師可讀的原因說明，目前為規則式文字模板 | `src/app/explainer/page.tsx`、`src/lib/api/explainer.ts` |
 
-目前使用 Mock 資料層（`src/lib/api/mock.ts`）模擬 ONEAPI 事件，後端就緒後只需改 `src/lib/api/dashboard.ts`、`src/lib/api/sites.ts`、`src/lib/api/trends.ts` 內部實作，其餘元件不需更動。
+目前使用 Mock 資料層（`src/lib/api/mock.ts`）模擬 ONEAPI 事件，後端就緒後只需改 `src/lib/api/*.ts` 各功能檔案內部實作，其餘元件不需更動。
 
 ## 尚未開發 ❌
 
-| 優先序 | 頁面/功能 | 簡報原文說明 | 備註 |
-| --- | --- | --- | --- |
-| 1 | 批次/晶圓品質摘要 | 以 lot、wafer、site 為層級產生 pass rate、bin 分布與疑似問題清單 | `LotSummary` 型別已在 `src/lib/api/types.ts` 定義，尚未接功能與頁面 |
-| 2 | Wafer map 熱區圖 | 簡報未直接列為頁面，但資料含 X/Y 座標，適合做空間異常視覺化 | 圓形晶圓熱區圖，demo 效果最好 |
-| 3 | 測試結果解釋器 | 把測試欄位、pin、site 與模型判斷轉成工程師可讀的原因說明 | 工作量最大，仰賴規則引擎或模型判斷，建議放最後 |
+MVP 五大功能頁面（Dashboard、Site imbalance、趨勢預警、品質摘要、Wafer map、結果解釋器）皆已完成。後續可視需求擴充：Multi-parameter correlation 分析、Lot-to-lot variation 比較、更進階的 SPC 規則（Nelson rules 全套）、真正的模型推論取代規則式解釋器等。
 
 ---
 
@@ -70,6 +69,8 @@
 ## 建議開發順序
 
 1. ~~測試趨勢預警~~（已完成）
-2. 批次/晶圓品質摘要（型別已定義，實作量相對小）
-3. Wafer map 熱區圖（demo 效果最好）
-4. 測試結果解釋器（工作量最大，留到最後）
+2. ~~批次/晶圓品質摘要~~（已完成）
+3. ~~Wafer map 熱區圖~~（已完成）
+4. ~~測試結果解釋器~~（已完成）
+
+功能開發告一段落，下一步是 UI/UX 整合：先讓實際的測試工程師/懂半導體的組員試用一輪，觀察真實使用習慣，再決定哪些頁面該合併、導覽列怎麼重新編排。
