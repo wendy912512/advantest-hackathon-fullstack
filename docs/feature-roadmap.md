@@ -15,8 +15,7 @@
 | 即時異常監控面板 | Lot/Wafer 概況、各 Site 分布卡片（mean/std/pass rate）、異常告警清單、最新測試結果表，5 秒輪詢模擬即時更新 | `src/app/page.tsx` |
 | Site imbalance 偵測 | Site 詳情頁可比較與其他 site 的 mean 差異，超過閾值標紅示警 | `src/app/sites/[id]/page.tsx` |
 | 測試趨勢預警 | 每個 site 建立 baseline（mean ± 3σ 為 UCL/LCL），偵測超出管制界線、連續上升/下降（≥6 點）、連續同側位移（8 點）。Dashboard 異常告警清單已改用真正的趨勢判斷結果 | `src/app/trends/page.tsx`、`src/lib/api/trends.ts` |
-| 批次/晶圓品質摘要 | Lot/Wafer 層級的 pass rate、Soft/Hard Bin Pareto 圖、規則式疑似問題清單（site pass rate 過低、單一失敗 bin 佔比過高） | `src/app/lots/page.tsx`、`src/lib/api/lots.ts` |
-| Wafer map 熱區圖 | 圓形晶圓分布圖，依 X/Y 座標畫出每顆 device 的 pass/fail，demo 資料刻意模擬邊緣失敗率較高的 edge die effect | `src/app/wafer-map/page.tsx`、`src/lib/api/wafer.ts` |
+| 批次品質瀏覽（Lot → Wafer） | 依真實品控工作流程設計：先選 Lot 看整批彙總 pass rate/Bin Pareto/疑似問題，再從 wafer 清單點進某片看熱區圖（一鍵直達，不用手動拉 Excel）。Mock 資料為 4 個 lot × 5 片 wafer，含健康/edge-effect/整體偏高失敗率三種樣式 | `src/app/lots/page.tsx`（列表）、`src/app/lots/[lot]/page.tsx`（批次摘要）、`src/app/lots/[lot]/wafers/[wafer]/page.tsx`（熱區圖）、`src/lib/api/lots.ts`、`src/lib/api/wafer.ts` |
 | 測試結果解釋器 | 把失敗 device 的測試欄位、bin、site 脈絡轉成工程師可讀的原因說明，目前為規則式文字模板 | `src/app/explainer/page.tsx`、`src/lib/api/explainer.ts` |
 
 目前使用 Mock 資料層（`src/lib/api/mock.ts`）模擬 ONEAPI 事件，後端就緒後只需改 `src/lib/api/*.ts` 各功能檔案內部實作，其餘元件不需更動。
