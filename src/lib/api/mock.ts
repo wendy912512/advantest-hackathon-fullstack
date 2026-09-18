@@ -15,11 +15,21 @@ import type {
 
 // 模擬 ONEAPI consumeData() 收到的即時測試資料。
 // 後端串接後，此檔案可整份移除，改由 lib/api/dashboard.ts、lib/api/sites.ts 呼叫真實 API。
+//
+// 主要測項數值（TEST_SUITE_NAME/TEST_NUMBER/UNIT/LOW_LIMIT/HIGH_LIMIT）參考自
+// 實際 py-app.log（ACS ONEAPI 3.3.0 執行紀錄）裡的 Main.IDDQ_flow.IDDQ_A1 測項：
+// TestNumber=80000、PinName=IO1、LowLimit≈12.1、HighLimit=30.0，
+// 4 個 site 實測值落在 19.2~19.8 之間。單位（mA）是我依 IDDQ（靜態漏電流）測試
+// 慣例假設的，log 裡該欄位實際是空字串，串接真實後端時請以 query_Unit 為準。
 
 const SITE_COUNT = 4;
 const IMBALANCED_SITE = 2; // demo：讓 Site 2 出現 imbalance
-const TEST_SUITE_NAME = "VDD_LEAKAGE";
-const TEST_NUMBER = 1042;
+const TEST_SUITE_NAME = "IDDQ_A1";
+const TEST_NUMBER = 80000;
+const TEST_PIN_NAME = "IO1";
+const TEST_UNIT = "mA";
+const TEST_LOW_LIMIT = 12.1;
+const TEST_HIGH_LIMIT = 30.0;
 
 // Bin 對照表（demo 假資料，真實對照要工程師提供，見 Notion 對齊表）
 const SOFT_BIN_LABELS: Record<number, string> = {
@@ -30,6 +40,12 @@ const SOFT_BIN_LABELS: Record<number, string> = {
 };
 const SITE_PASS_RATE_THRESHOLD = 0.85; // demo 用門檻，真實門檻需與工程師確認
 const BIN_RATIO_ALERT_THRESHOLD = 0.05; // 單一失敗 bin 佔比超過 5% 視為疑似系統性問題（demo 用）
+// site mean 偏離整體超過此值視為 imbalance（demo 用，需與工程師確認）。
+// 注意：整體平均值是 4 個 site 的 pooled mean，異常 site 本身會把 pooled mean 拉偏，
+// 所以這個閾值要大於「單一異常 site 導致其他正常 site 被拉偏的量」，見 generateDevice()
+// 裡 IMBALANCED_SITE 的偏移量（+8.5）：其他 3 個正常 site 大約會被拉偏 8.5/4 ≈ 2.1，
+// 因此閾值需明顯大於 2.1，這裡取 4。
+export const IMBALANCE_DEVIATION_THRESHOLD = 4;
 
 // Wafer map 參數（demo 用，真實晶圓尺寸/座標系統需與工程師確認，見 Notion 對齊表）
 const WAFER_RADIUS = 20;
@@ -42,7 +58,6 @@ const BIN_CAUSE_HINTS: Record<number, string> = {
   3: "疑似時序（timing）不符合，常見原因為時脈偏移或訊號完整性問題",
   4: "疑似功能性測試失敗，常見原因為邏輯錯誤或圖案敏感缺陷",
 };
-const PASS_LIMIT = 1.6; // 對齊 generateDevice() 的 pass 門檻，真實 spec limit 需與工程師確認
 
 // 趨勢判斷規則參數（demo 用固定值，真實規則需與後端/工程師確認，見 Notion 對齊表）
 const TREND_BASELINE_WINDOW = 10; // 前 N 點做為 baseline，算 mean/std
@@ -80,15 +95,18 @@ let sequence = 0;
 
 function generateDevice(site: number, lot: string, wafer: string, rand: () => number): DeviceTestResult {
   sequence += 1;
-  const baseMean = 1.2;
-  const baseStd = 0.08;
+  // baseline 取自真實 log 觀察到的 4 個 site 實測值（19.2~19.8），std 為 demo 估計值
+  const baseMean = 19.5;
+  const baseStd = 0.3;
   const isImbalanced = site === IMBALANCED_SITE;
+  // 異常 site 的平均值刻意推向 High Limit（30.0）附近、標準差也放大，
+  // 讓它同時呈現「site imbalance」（mean 偏移）與「real fail」（偶爾超出 spec）兩種訊號
   const value = gaussian(
     rand,
-    isImbalanced ? baseMean + 0.35 : baseMean,
-    isImbalanced ? baseStd * 1.6 : baseStd,
+    isImbalanced ? baseMean + 8.5 : baseMean,
+    isImbalanced ? 1.8 : baseStd,
   );
-  const pass = value < PASS_LIMIT;
+  const pass = value >= TEST_LOW_LIMIT && value <= TEST_HIGH_LIMIT;
 
   const device: DeviceInfo = {
     pid: `DEV-${lot}-${wafer}-${sequence.toString().padStart(5, "0")}`,
@@ -109,8 +127,12 @@ function generateDevice(site: number, lot: string, wafer: string, rand: () => nu
       {
         testNumber: TEST_NUMBER,
         testSuiteName: TEST_SUITE_NAME,
+        pinName: TEST_PIN_NAME,
         kind: "PARAMETRIC",
         value: Number(value.toFixed(4)),
+        unit: TEST_UNIT,
+        lowLimit: TEST_LOW_LIMIT,
+        highLimit: TEST_HIGH_LIMIT,
         pass,
       },
     ],
@@ -147,7 +169,7 @@ export function summarizeBySite(results: DeviceTestResult[]): SiteSummary[] {
     const siteMean = mean(values);
     const siteStd = stdDev(values);
     const deviation = Math.abs(siteMean - overallMean);
-    const isAnomalous = deviation > 0.15;
+    const isAnomalous = deviation > IMBALANCE_DEVIATION_THRESHOLD;
 
     summaries.push({
       site,
@@ -176,17 +198,17 @@ const SITE_TREND_PATTERN: Record<number, TrendPattern> = {
 };
 
 function generateSeriesValues(site: number, rand: () => number): number[] {
-  const baseMean = site === IMBALANCED_SITE ? 1.2 + 0.35 : 1.2;
-  const baseStd = 0.08;
+  const baseMean = site === IMBALANCED_SITE ? 19.5 + 8.5 : 19.5;
+  const baseStd = 0.3;
   const pattern = SITE_TREND_PATTERN[site] ?? "stable";
   const values: number[] = [];
 
   for (let i = 0; i < TREND_SERIES_LENGTH; i += 1) {
     let pointMean = baseMean;
     if (pattern === "drift-up") {
-      pointMean += (i / TREND_SERIES_LENGTH) * 0.4; // 逐漸往上漂移
+      pointMean += (i / TREND_SERIES_LENGTH) * 6; // 逐漸往上漂移，往 high limit（30.0）靠近
     } else if (pattern === "level-shift" && i >= TREND_SERIES_LENGTH * 0.6) {
-      pointMean += 0.3; // 後段整體位移
+      pointMean += 5; // 後段整體位移
     }
     values.push(gaussian(rand, pointMean, baseStd));
   }
@@ -430,16 +452,21 @@ export function explainFailures(limit = 8): FailureExplanation[] {
   const fails = results.filter((r) => r.device.pf === "FAIL").slice(0, limit);
 
   return fails.map((r) => {
-    const value = r.results[0]?.value ?? 0;
-    const overLimit = value - PASS_LIMIT;
+    const testResult = r.results[0];
+    const value = testResult?.value ?? 0;
+    const lowLimit = testResult?.lowLimit ?? TEST_LOW_LIMIT;
+    const highLimit = testResult?.highLimit ?? TEST_HIGH_LIMIT;
+    const unit = testResult?.unit ?? TEST_UNIT;
     const site = siteBySite.get(r.device.site);
     const binCause =
       BIN_CAUSE_HINTS[r.device.softBin] ?? "尚無對照的失敗原因說明，需要工程師補充 bin definition";
 
-    const reasons = [
-      `量測值 ${value.toFixed(3)}，超出 PASS 門檻 ${PASS_LIMIT} 達 ${overLimit.toFixed(3)}`,
-      binCause,
-    ];
+    const limitReason =
+      value > highLimit
+        ? `量測值 ${value.toFixed(3)} ${unit}，超出 High Limit ${highLimit} ${unit} 達 ${(value - highLimit).toFixed(3)}`
+        : `量測值 ${value.toFixed(3)} ${unit}，低於 Low Limit ${lowLimit} ${unit} 達 ${(lowLimit - value).toFixed(3)}`;
+
+    const reasons = [limitReason, binCause];
     if (site?.isAnomalous) {
       reasons.push(
         `Site ${r.device.site} 整體平均值偏離其他 site（${site.anomalyReason}），此 device 的失敗可能與 site 系統性問題有關，而非單一 device 本身的缺陷`,

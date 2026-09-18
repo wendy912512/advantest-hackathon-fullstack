@@ -4,6 +4,7 @@ import { IconArrowLeft } from "@tabler/icons-react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { AnomalyBadge } from "@/components/features/AnomalyBadge";
 import { fetchSiteResults, fetchSiteSummaries } from "@/lib/api";
+import { IMBALANCE_DEVIATION_THRESHOLD } from "@/lib/api/mock";
 import { SiteResultsTable } from "./_components/SiteResultsTable";
 
 export default async function SiteDetailPage({
@@ -85,7 +86,7 @@ export default async function SiteDetailPage({
                 <div key={other.site} className="rounded-md border p-3 text-sm">
                   <p className="font-medium">Site {other.site}</p>
                   <p className="text-muted-foreground">Mean: {other.mean}</p>
-                  <p className={diff > 0.15 || diff < -0.15 ? "text-destructive" : "text-muted-foreground"}>
+                  <p className={Math.abs(diff) > IMBALANCE_DEVIATION_THRESHOLD ? "text-destructive" : "text-muted-foreground"}>
                     差異：{diff > 0 ? "+" : ""}
                     {diff.toFixed(3)}
                   </p>

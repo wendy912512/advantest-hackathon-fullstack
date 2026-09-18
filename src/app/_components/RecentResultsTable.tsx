@@ -27,8 +27,13 @@ export function RecentResultsTable({ results }: { results: DeviceTestResult[] })
           <TableRow key={r.device.pid}>
             <TableCell className="font-mono text-xs">{r.device.pid}</TableCell>
             <TableCell>{r.device.site}</TableCell>
-            <TableCell>{r.results[0]?.testSuiteName}</TableCell>
-            <TableCell>{r.results[0]?.value}</TableCell>
+            <TableCell>
+              {r.results[0]?.testSuiteName}
+              {r.results[0]?.pinName ? ` (${r.results[0].pinName})` : ""}
+            </TableCell>
+            <TableCell>
+              {r.results[0]?.value} {r.results[0]?.unit}
+            </TableCell>
             <TableCell>
               <Badge variant={r.device.pf === "PASS" ? "secondary" : "destructive"}>
                 {r.device.pf}

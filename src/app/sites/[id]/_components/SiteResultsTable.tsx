@@ -29,7 +29,9 @@ export function SiteResultsTable({ results }: { results: DeviceTestResult[] }) {
             <TableCell>
               {r.device.x} / {r.device.y}
             </TableCell>
-            <TableCell>{r.results[0]?.value}</TableCell>
+            <TableCell>
+              {r.results[0]?.value} {r.results[0]?.unit}
+            </TableCell>
             <TableCell>{r.device.softBin}</TableCell>
             <TableCell>{r.device.hardBin}</TableCell>
             <TableCell>
