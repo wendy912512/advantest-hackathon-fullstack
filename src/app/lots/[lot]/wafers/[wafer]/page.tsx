@@ -1,29 +1,39 @@
-"use client";
-
-import { useWaferMapData } from "@/hooks/useWaferMapData";
-import { WaferMapChart } from "@/components/features/WaferMapChart";
+import Link from "next/link";
+import { notFound } from "next/navigation";
+import { IconArrowLeft } from "@tabler/icons-react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { fetchWaferMapData } from "@/lib/api";
+import { WaferMapChart } from "@/components/features/WaferMapChart";
 
-export default function WaferMapPage() {
-  const { data, isLoading } = useWaferMapData();
-
-  if (isLoading || !data) {
-    return (
-      <div className="mx-auto max-w-6xl px-6 py-10">
-        <p className="text-muted-foreground">載入 wafer map 資料中…</p>
-      </div>
-    );
+export default async function WaferDetailPage({
+  params,
+}: {
+  params: Promise<{ lot: string; wafer: string }>;
+}) {
+  const { lot, wafer } = await params;
+  const data = await fetchWaferMapData(lot, wafer);
+  if (!data) {
+    notFound();
   }
 
   const failCount = data.points.filter((p) => p.pf === "FAIL").length;
 
   return (
     <div className="mx-auto max-w-6xl space-y-6 px-6 py-8">
+      <Link
+        href={`/lots/${lot}`}
+        className="inline-flex items-center gap-1 text-sm text-muted-foreground hover:text-foreground"
+      >
+        <IconArrowLeft className="size-4" />
+        返回 {lot} 批次摘要
+      </Link>
+
       <div>
-        <h1 className="text-xl font-semibold">Wafer Map 熱區圖</h1>
+        <h1 className="text-xl font-semibold">
+          {data.lot} · {data.wafer} Wafer Map
+        </h1>
         <p className="text-sm text-muted-foreground">
-          {data.lot} · {data.wafer}，共 {data.points.length} 顆 device，{failCount} 顆 FAIL（每 15
-          秒重新評估，目前為 Mock 資料，且刻意模擬邊緣失敗率較高的 edge die effect 示範異常樣式）
+          共 {data.points.length} 顆 device，{failCount} 顆 FAIL（目前為 Mock 資料）
         </p>
       </div>
 
@@ -54,10 +64,6 @@ export default function WaferMapPage() {
           <CardContent className="space-y-3 text-sm text-muted-foreground">
             <p>
               若不良點集中在特定區域（邊緣、中心、環狀、局部群聚），可能代表製程或機台的系統性問題，而非隨機缺陷。
-            </p>
-            <p>
-              這份 demo 資料刻意讓晶圓邊緣區域的失敗率提高，模擬業界常見的 <b>edge die effect</b>
-              （邊緣效應）樣式，方便展示空間異常的視覺化效果。
             </p>
             <p className="text-xs">
               真實座標系統、notch 方向與晶圓尺寸需與工程師確認（見 Notion 對齊表）。

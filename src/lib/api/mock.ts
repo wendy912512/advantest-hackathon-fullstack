@@ -4,11 +4,13 @@ import type {
   DeviceInfo,
   DeviceTestResult,
   FailureExplanation,
+  LotListItem,
   LotSummary,
   SiteSummary,
   TrendAlert,
   TrendPoint,
   TrendSeries,
+  WaferListItem,
   WaferMapData,
   WaferPoint,
 } from "./types";
@@ -49,7 +51,6 @@ export const IMBALANCE_DEVIATION_THRESHOLD = 4;
 
 // Wafer map 參數（demo 用，真實晶圓尺寸/座標系統需與工程師確認，見 Notion 對齊表）
 const WAFER_RADIUS = 20;
-const WAFER_POINT_COUNT = 320;
 const WAFER_EDGE_RING_RATIO = 0.78; // 超過此比例半徑視為「邊緣」，demo 用來模擬 edge die effect
 
 // 測試結果解釋器：bin 對應的失敗原因說明（demo 用規則式文字，真實原因需由工程師/模型判斷提供）
@@ -139,9 +140,12 @@ function generateDevice(site: number, lot: string, wafer: string, rand: () => nu
   };
 }
 
+// 這是「目前正在測試中」的即時監控資料（Dashboard/Site/趨勢/解釋器用），跟
+// LOT_DEFINITIONS 裡「已完成、可瀏覽歷史」的批次是分開的兩組資料，故意用不同的
+// lot id（LOT-2026-0093）避免混淆——不是同一批貨。
 export function generateMockResults(count = 240): DeviceTestResult[] {
   const rand = seededRandom(42);
-  const lot = "LOT-2026-0091";
+  const lot = "LOT-2026-0093";
   const wafer = "W07";
   const results: DeviceTestResult[] = [];
   for (let i = 0; i < count; i += 1) {
@@ -375,15 +379,200 @@ function binBreakdown(devices: DeviceInfo[], pick: (d: DeviceInfo) => number): B
     .sort((a, b) => b.count - a.count);
 }
 
-export function generateLotSummary(): LotSummary {
-  const results = generateMockResults();
+// ---------------------------------------------------------------------------
+// 多 Lot / 多 Wafer 瀏覽（品控實務：先選 Lot 看整批品質，再視需要點進某片 wafer
+// 看熱區圖；wafer 之間不做逐片比較表，只在疑似問題清單裡標出離群的那一片）
+// ---------------------------------------------------------------------------
+
+type WaferPattern = "healthy" | "edge-effect" | "elevated-fail";
+
+interface WaferDefinition {
+  wafer: string;
+  pattern: WaferPattern;
+}
+
+interface LotDefinition {
+  lot: string;
+  startedAt: string;
+  wafers: WaferDefinition[];
+}
+
+// demo 用固定資料集：4 個 lot，每個 lot 5 片 wafer。真實 site/wafer 數量、每片
+// device 數需與工程師確認，見 Notion 對齊表。
+const LOT_DEFINITIONS: LotDefinition[] = [
+  {
+    lot: "LOT-2026-0091",
+    startedAt: "2026-09-19T01:00:00.000Z",
+    wafers: [
+      { wafer: "W01", pattern: "healthy" },
+      { wafer: "W02", pattern: "healthy" },
+      { wafer: "W03", pattern: "edge-effect" },
+      { wafer: "W04", pattern: "healthy" },
+      { wafer: "W05", pattern: "elevated-fail" },
+    ],
+  },
+  {
+    lot: "LOT-2026-0089",
+    startedAt: "2026-09-18T09:30:00.000Z",
+    wafers: [
+      { wafer: "W01", pattern: "healthy" },
+      { wafer: "W02", pattern: "healthy" },
+      { wafer: "W03", pattern: "healthy" },
+      { wafer: "W04", pattern: "healthy" },
+      { wafer: "W05", pattern: "healthy" },
+    ],
+  },
+  {
+    lot: "LOT-2026-0087",
+    startedAt: "2026-09-17T14:15:00.000Z",
+    wafers: [
+      { wafer: "W01", pattern: "healthy" },
+      { wafer: "W02", pattern: "edge-effect" },
+      { wafer: "W03", pattern: "healthy" },
+      { wafer: "W04", pattern: "healthy" },
+      { wafer: "W05", pattern: "healthy" },
+    ],
+  },
+  {
+    lot: "LOT-2026-0085",
+    startedAt: "2026-09-16T18:45:00.000Z",
+    wafers: [
+      { wafer: "W01", pattern: "healthy" },
+      { wafer: "W02", pattern: "healthy" },
+      { wafer: "W03", pattern: "healthy" },
+      { wafer: "W04", pattern: "healthy" },
+      { wafer: "W05", pattern: "healthy" },
+    ],
+  },
+];
+
+const WAFER_POINTS_PER_WAFER = 176;
+
+function seedFromString(input: string): number {
+  let hash = 0;
+  for (let i = 0; i < input.length; i += 1) {
+    hash = (hash * 31 + input.charCodeAt(i)) >>> 0;
+  }
+  return hash || 1;
+}
+
+function siteForAngle(angle: number): number {
+  const twoPi = Math.PI * 2;
+  const normalized = ((angle % twoPi) + twoPi) % twoPi;
+  return Math.floor(normalized / (twoPi / SITE_COUNT)) + 1;
+}
+
+function findWaferDefinition(lot: string, wafer: string): WaferDefinition | undefined {
+  return LOT_DEFINITIONS.find((l) => l.lot === lot)?.wafers.find((w) => w.wafer === wafer);
+}
+
+// 依 wafer 的模擬樣式（健康／edge die effect／整體偏高失敗率）產生該片所有 device，
+// 座標用極座標均勻取樣圓盤，site 依角度分成 4 象限（demo 簡化，真實 site 配置需與
+// 工程師確認）。
+function generateWaferDeviceResults(lot: string, wafer: string): DeviceTestResult[] {
+  const def = findWaferDefinition(lot, wafer);
+  const pattern = def?.pattern ?? "healthy";
+  const rand = seededRandom(seedFromString(`${lot}-${wafer}`));
+  const results: DeviceTestResult[] = [];
+
+  for (let i = 0; i < WAFER_POINTS_PER_WAFER; i += 1) {
+    const angle = rand() * 2 * Math.PI;
+    const r = WAFER_RADIUS * Math.sqrt(rand());
+    const x = Math.round(r * Math.cos(angle));
+    const y = Math.round(r * Math.sin(angle));
+    const site = siteForAngle(angle);
+    const isEdge = r > WAFER_RADIUS * WAFER_EDGE_RING_RATIO;
+
+    let failProbability = 0.05;
+    if (pattern === "edge-effect" && isEdge) failProbability = 0.45;
+    if (pattern === "elevated-fail") failProbability = 0.22;
+
+    const pass = rand() > failProbability;
+    const value = pass
+      ? 19.5 + (rand() - 0.5) * 2 // 正常範圍內
+      : TEST_HIGH_LIMIT + rand() * 3; // 超出 high limit
+
+    sequence += 1;
+    const device: DeviceInfo = {
+      pid: `DEV-${lot}-${wafer}-${sequence.toString().padStart(5, "0")}`,
+      lot,
+      wafer,
+      site,
+      x,
+      y,
+      pf: pass ? "PASS" : "FAIL",
+      softBin: pass ? 1 : 2 + Math.floor(rand() * 3),
+      hardBin: pass ? 1 : 2 + Math.floor(rand() * 3),
+      testTime: new Date(Date.now() - Math.floor(rand() * 60_000)).toISOString(),
+    };
+
+    results.push({
+      device,
+      results: [
+        {
+          testNumber: TEST_NUMBER,
+          testSuiteName: TEST_SUITE_NAME,
+          pinName: TEST_PIN_NAME,
+          kind: "PARAMETRIC",
+          value: Number(value.toFixed(4)),
+          unit: TEST_UNIT,
+          lowLimit: TEST_LOW_LIMIT,
+          highLimit: TEST_HIGH_LIMIT,
+          pass,
+        },
+      ],
+    });
+  }
+
+  return results;
+}
+
+function waferListItem(lot: string, wafer: string): WaferListItem {
+  const devices = generateWaferDeviceResults(lot, wafer).map((r) => r.device);
+  const passCount = devices.filter((d) => d.pf === "PASS").length;
+  const passRate = passCount / devices.length;
+  return {
+    wafer,
+    totalDevices: devices.length,
+    passRate,
+    hasIssue: passRate < SITE_PASS_RATE_THRESHOLD,
+  };
+}
+
+export function generateLotList(): LotListItem[] {
+  return LOT_DEFINITIONS.map((def) => {
+    const wafers = def.wafers.map((w) => waferListItem(def.lot, w.wafer));
+    const totalDevices = wafers.reduce((sum, w) => sum + w.totalDevices, 0);
+    const passRate =
+      wafers.reduce((sum, w) => sum + w.passRate * w.totalDevices, 0) / totalDevices;
+
+    return {
+      lot: def.lot,
+      waferCount: def.wafers.length,
+      totalDevices,
+      passRate,
+      hasIssue: wafers.some((w) => w.hasIssue),
+      startedAt: def.startedAt,
+    };
+  });
+}
+
+export function generateLotSummary(lot: string): LotSummary | undefined {
+  const def = LOT_DEFINITIONS.find((l) => l.lot === lot);
+  if (!def) return undefined;
+
+  const results = def.wafers.flatMap((w) => generateWaferDeviceResults(lot, w.wafer));
   const devices = results.map((r) => r.device);
   const siteSummaries = summarizeBySite(results);
   const passCount = devices.filter((d) => d.pf === "PASS").length;
+  const passRate = passCount / devices.length;
 
   const softBinBreakdown = binBreakdown(devices, (d) => d.softBin);
   const hardBinBreakdown = binBreakdown(devices, (d) => d.hardBin);
+  const wafers = def.wafers.map((w) => waferListItem(lot, w.wafer));
 
+  // 疑似問題清單：整批（lot）層級的訊號，加上「哪一片 wafer 明顯拖累整批」
+  // 這種需要 drill-down 排查的離群點——但不是逐片互相比較表
   const suspectIssues: string[] = [];
   for (const s of siteSummaries) {
     if (s.passRate < SITE_PASS_RATE_THRESHOLD) {
@@ -399,47 +588,44 @@ export function generateLotSummary(): LotSummary {
       );
     }
   }
+  // 跟 waferListItem() 的 hasIssue 用同一個門檻，避免 wafer 卡片標紅了、
+  // 疑似問題清單卻沒列出來的不一致情況
+  for (const w of wafers) {
+    if (w.hasIssue) {
+      suspectIssues.push(
+        `Wafer ${w.wafer} pass rate 為 ${(w.passRate * 100).toFixed(1)}%，低於門檻 ${(SITE_PASS_RATE_THRESHOLD * 100).toFixed(0)}%，建議點進去看 wafer map`,
+      );
+    }
+  }
 
   return {
-    lot: devices[0]?.lot ?? "-",
-    wafer: devices[0]?.wafer ?? "-",
+    lot,
+    waferCount: def.wafers.length,
     totalDevices: devices.length,
-    passRate: passCount / devices.length,
+    passRate,
     siteSummaries,
     softBinBreakdown,
     hardBinBreakdown,
     suspectIssues,
+    wafers,
   };
 }
 
-export function generateWaferMapData(): WaferMapData {
-  const rand = seededRandom(2026);
-  const points: WaferPoint[] = [];
+export function generateWaferMapData(lot: string, wafer: string): WaferMapData | undefined {
+  if (!findWaferDefinition(lot, wafer)) return undefined;
 
-  for (let i = 0; i < WAFER_POINT_COUNT; i += 1) {
-    // 用極座標均勻取樣圓盤內的點（demo 用晶圓座標，真實座標系統/notch 方向需與工程師確認）
-    const angle = rand() * 2 * Math.PI;
-    const r = WAFER_RADIUS * Math.sqrt(rand());
-    const x = Math.round(r * Math.cos(angle));
-    const y = Math.round(r * Math.sin(angle));
-
-    // demo：邊緣區域失敗率明顯較高，模擬 edge die effect 這種空間異常
-    const isEdge = r > WAFER_RADIUS * WAFER_EDGE_RING_RATIO;
-    const failProbability = isEdge ? 0.45 : 0.05;
-    const pass = rand() > failProbability;
-
-    points.push({
-      pid: `DEV-WAFER-${i.toString().padStart(4, "0")}`,
-      x,
-      y,
-      pf: pass ? "PASS" : "FAIL",
-      softBin: pass ? 1 : 2 + Math.floor(rand() * 3),
-    });
-  }
+  const results = generateWaferDeviceResults(lot, wafer);
+  const points: WaferPoint[] = results.map((r) => ({
+    pid: r.device.pid,
+    x: r.device.x,
+    y: r.device.y,
+    pf: r.device.pf,
+    softBin: r.device.softBin,
+  }));
 
   return {
-    lot: "LOT-2026-0091",
-    wafer: "W07",
+    lot,
+    wafer,
     radius: WAFER_RADIUS,
     points,
   };

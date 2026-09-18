@@ -17,10 +17,7 @@ export function Header() {
             趨勢預警
           </Link>
           <Link href="/lots" className="hover:text-foreground">
-            品質摘要
-          </Link>
-          <Link href="/wafer-map" className="hover:text-foreground">
-            Wafer Map
+            批次品質
           </Link>
           <Link href="/explainer" className="hover:text-foreground">
             結果解釋器

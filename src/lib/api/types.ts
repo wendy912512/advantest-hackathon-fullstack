@@ -73,15 +73,35 @@ export interface BinBreakdown {
   ratio: number; // 0-1
 }
 
+// Lot 是一批貨的單位，底下包含多片 wafer（CP 情境下通常一批 25 片，demo 用少一點）。
+// 依實務工作流程（見 Notion 對齊表的品控回饋）：封裝前看的是「整批 Lot」的彙總品質，
+// 不是逐片 wafer 互相比較；wafer 之間的比較只在需要 drill-down 排查時才用。
+export interface LotListItem {
+  lot: string;
+  waferCount: number;
+  totalDevices: number;
+  passRate: number;
+  hasIssue: boolean;
+  startedAt: string; // ISO timestamp
+}
+
+export interface WaferListItem {
+  wafer: string;
+  totalDevices: number;
+  passRate: number;
+  hasIssue: boolean;
+}
+
 export interface LotSummary {
   lot: string;
-  wafer: string;
+  waferCount: number;
   totalDevices: number;
   passRate: number;
   siteSummaries: SiteSummary[];
   softBinBreakdown: BinBreakdown[];
   hardBinBreakdown: BinBreakdown[];
   suspectIssues: string[];
+  wafers: WaferListItem[]; // 供 drill-down 選片用，不是比較表
 }
 
 export type TrendDirection = "UP" | "DOWN" | "STABLE" | "SHIFT";

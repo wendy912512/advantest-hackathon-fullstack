@@ -4,7 +4,7 @@ import type { LotSummary } from "@/lib/api";
 export function LotOverviewStats({ summary }: { summary: LotSummary }) {
   const stats = [
     { label: "Lot", value: summary.lot },
-    { label: "Wafer", value: summary.wafer },
+    { label: "Wafer 數", value: summary.waferCount.toString() },
     { label: "總測試 Device 數", value: summary.totalDevices.toLocaleString() },
     { label: "整體 Pass Rate", value: `${(summary.passRate * 100).toFixed(1)}%` },
   ];
