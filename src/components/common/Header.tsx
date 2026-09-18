@@ -25,6 +25,9 @@ export function Header() {
           <Link href="/explainer" className="hover:text-foreground">
             結果解釋器
           </Link>
+          <Link href="/about" className="hover:text-foreground">
+            系統架構
+          </Link>
         </nav>
       </div>
     </header>

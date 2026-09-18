@@ -1,4 +1,10 @@
 // 依據 ONEAPI / ACS RTDI 資料格式定義的型別（DeviceInfo + Device test results）
+//
+// ONEAPI 是事件驅動架構：consumeData() 會依序收到 DATA_TYP_PRODUCTION_TESTEND
+// （每個 site 的 bin/Part ID/座標/測試時間）與 DATA_TYP_MEASURED_PARAMETRIC
+// （實際量測值）等「不同的事件」，兩者不是同一筆資料。DeviceTestResult 把它們
+// 合併成一筆，是為了前端/mock 方便；後端需要用 lot+wafer+site+test 當 key
+// 暫存量測事件，等對應的 TESTEND 事件抵達再組裝輸出。詳見 Notion「後端建立指引」。
 
 export type PassFail = "PASS" | "FAIL";
 
@@ -12,7 +18,7 @@ export interface DeviceInfo {
   pf: PassFail;
   softBin: number;
   hardBin: number;
-  testTime: string; // ISO timestamp
+  testTime: string; // ISO timestamp，對應 DATA_TYP_PRODUCTION_TESTEND
 }
 
 export type TestKind = "FUNCTIONAL" | "PARAMETRIC" | "MULTI_PARAM" | "SCAN";
@@ -22,8 +28,8 @@ export interface TestResultField {
   testSuiteName: string;
   pinName?: string;
   kind: TestKind;
-  value?: number; // parametric / multi-param
-  pass: boolean; // functional / scan
+  value?: number; // parametric / multi-param，對應 DATA_TYP_MEASURED_PARAMETRIC / _MULTI_PARAM
+  pass: boolean; // functional / scan，對應 DATA_TYP_MEASURED_FUNCTIONAL / _SCAN
 }
 
 export interface DeviceTestResult {
