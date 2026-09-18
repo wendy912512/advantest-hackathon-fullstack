@@ -13,11 +13,14 @@
 //   DeviceInfo.testTime         ← query_TestTime（consumeTestEnd）
 //   TestResultField.unit/lowLimit/highLimit ← query_Unit / query_LowLimit / query_HighLimit
 //     （consumeParametricTest / consumeMultiParametric）
-// 注意：實際觀察到的 log 是 FT（Final Test，封裝後測試，TestStepCode=FT）情境，
-// 完全沒有 WAFERSTART/WAFEREND 事件，直接 LOTSTART → TESTSTART → ... → TESTEND →
-// LOTEND；WAFERSTART/WAFEREND 應該只出現在 CP（wafer probe）情境。本專案的
-// site/wafer map 相關功能是模擬 CP 情境設計的，串接真實後端時務必跟工程師確認
-// 這次黑客松實際測試的是 CP 還是 FT，資料流程會不一樣。
+// 注意（未經證實的推論，非文件明載）：實際觀察到的 log 是 FT（Final Test，
+// 封裝後測試，TestStepCode=FT）情境，完全沒有 WAFERSTART/WAFEREND 事件，直接
+// LOTSTART → TESTSTART → ... → TESTEND → LOTEND。ONEAPI 官方文件本身並未說明
+// WAFERSTART/WAFEREND 只出現在哪種情境，這裡只是從「FT 沒有」反推「可能是 CP
+// 專屬」，尚未經任何文件或工程師證實。本專案的 site/wafer map 相關功能是假設
+// CP 情境設計的（wafer 是必要欄位），如果這次黑客松實際測的是像這份 log 一樣
+// 的 FT，wafer 欄位與 Wafer Map 頁面在概念上就不成立，需要重新設計。串接真實
+// 後端前務必跟工程師/主辦方確認這次實際測的是 CP 還是 FT，見 Notion 對齊表。
 
 export type PassFail = "PASS" | "FAIL";
 
