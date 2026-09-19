@@ -43,7 +43,10 @@ const SOFT_BIN_LABELS: Record<number, string> = {
   3: "Timing Fail",
   4: "Functional Fail",
 };
-const SITE_PASS_RATE_THRESHOLD = 0.85; // demo 用門檻，真實門檻需與工程師確認
+// 官方訓練資料集（TrainDataInfo.txt）證實的真實門檻：25 片 wafer 中，
+// W3（67.5%）與 W9（68.8%）被標記為「Low yield which yield is low than 80」，
+// 其餘正常 wafer 良率都在 80% 以上，所以 80% 是官方認定的門檻，不是猜的。
+const SITE_PASS_RATE_THRESHOLD = 0.8;
 const BIN_RATIO_ALERT_THRESHOLD = 0.05; // 單一失敗 bin 佔比超過 5% 視為疑似系統性問題（demo 用）
 // site mean 偏離整體超過此值視為 imbalance（demo 用，需與工程師確認）。
 // 注意：整體平均值是 4 個 site 的 pooled mean，異常 site 本身會把 pooled mean 拉偏，
@@ -186,7 +189,7 @@ export function summarizeBySite(results: DeviceTestResult[]): SiteSummary[] {
       stdDev: Number(siteStd.toFixed(4)),
       isAnomalous,
       anomalyReason: isAnomalous
-        ? `平均值偏離整體 ${deviation.toFixed(3)}，疑似 site imbalance`
+        ? `Site unbalance：平均值偏離整體 ${deviation.toFixed(3)}`
         : undefined,
     });
   }
@@ -263,7 +266,7 @@ function detectTrendAlerts(site: number, points: TrendPoint[], baselineMean: num
       testSuiteName: TEST_SUITE_NAME,
       direction: "UP",
       detectedAt: new Date().toISOString(),
-      message: `連續 ${risingRun} 點持續上升，疑似製程漂移`,
+      message: `Mean Trend Up：連續 ${risingRun} 點持續上升，疑似製程漂移`,
     });
   } else if (fallingRun >= TREND_CONSECUTIVE_RUN) {
     alerts.push({
@@ -272,7 +275,32 @@ function detectTrendAlerts(site: number, points: TrendPoint[], baselineMean: num
       testSuiteName: TEST_SUITE_NAME,
       direction: "DOWN",
       detectedAt: new Date().toISOString(),
-      message: `連續 ${fallingRun} 點持續下降，疑似製程漂移`,
+      message: `Mean Trend Down：連續 ${fallingRun} 點持續下降，疑似製程漂移`,
+    });
+  }
+
+  // Stdev Trend Up/Down：比較前後半段的標準差，呼應官方訓練資料集標記的 W23/W25 類別
+  const half = Math.floor(values.length / 2);
+  const firstHalfStd = stdDev(values.slice(0, half));
+  const secondHalfStd = stdDev(values.slice(half));
+  const stdRatio = secondHalfStd / Math.max(firstHalfStd, 1e-6);
+  if (stdRatio > 1.6) {
+    alerts.push({
+      id: `trend-${site}-std-up`,
+      site,
+      testSuiteName: TEST_SUITE_NAME,
+      direction: "SHIFT",
+      detectedAt: new Date().toISOString(),
+      message: `Stdev Trend Up：後半段標準差（${secondHalfStd.toFixed(3)}）是前半段（${firstHalfStd.toFixed(3)}）的 ${stdRatio.toFixed(1)} 倍，疑似製程穩定性下降`,
+    });
+  } else if (stdRatio < 0.62) {
+    alerts.push({
+      id: `trend-${site}-std-down`,
+      site,
+      testSuiteName: TEST_SUITE_NAME,
+      direction: "SHIFT",
+      detectedAt: new Date().toISOString(),
+      message: `Stdev Trend Down：後半段標準差（${secondHalfStd.toFixed(3)}）明顯小於前半段（${firstHalfStd.toFixed(3)}），製程波動收斂`,
     });
   }
 
@@ -596,7 +624,7 @@ export function generateLotSummary(lot: string): LotSummary | undefined {
   for (const w of wafers) {
     if (w.hasIssue) {
       suspectIssues.push(
-        `Wafer ${w.wafer} pass rate 為 ${(w.passRate * 100).toFixed(1)}%，低於門檻 ${(SITE_PASS_RATE_THRESHOLD * 100).toFixed(0)}%，建議點進去看 wafer map`,
+        `Wafer ${w.wafer}：Low yield（pass rate ${(w.passRate * 100).toFixed(1)}%，低於官方門檻 ${(SITE_PASS_RATE_THRESHOLD * 100).toFixed(0)}%），建議點進去看 wafer map`,
       );
     }
   }
