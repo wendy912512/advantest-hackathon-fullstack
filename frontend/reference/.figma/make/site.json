@@ -1,0 +1,10 @@
+{
+  "description": "Real-time semiconductor test dashboard enabling engineers to monitor wafer probe quality, detect anomalies, analyze trends, and predict IC overheating risks.",
+  "robots": {
+    "index": false
+  },
+  "accessibility": {
+    "addBypassLinks": false,
+    "ignoreReducedMotion": false
+  }
+}
