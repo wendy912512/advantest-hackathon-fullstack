@@ -91,15 +91,6 @@ export function LotBrowser({ lot }: { lot: string }) {
           ))}
         </div>
 
-        {summary.suspectIssues.length > 0 && (
-          <div style={{ marginBottom: 16, display: "flex", flexDirection: "column", gap: 6 }}>
-            {summary.suspectIssues.map((issue) => (
-              <div key={issue} style={{ fontSize: 12, color: C.red, background: C.redBg, border: `1px solid ${C.redBorder}`, borderRadius: 8, padding: "6px 10px" }}>
-                {issue}
-              </div>
-            ))}
-          </div>
-        )}
       </div>
 
       <div style={{ border: `1px solid ${C.border}`, borderRadius: 12, padding: 16, background: C.card, marginBottom: 12, boxShadow: C.shadow }}>

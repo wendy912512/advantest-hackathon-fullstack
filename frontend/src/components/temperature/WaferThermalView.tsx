@@ -1,7 +1,7 @@
 "use client";
 
-import { useState } from "react";
-import type { DeviceSensorPrediction, DeviceThermal, ThermalSensorMeta, ThermalStatus, WaferThermal } from "@/lib/api";
+import { useEffect, useState } from "react";
+import type { DeviceSensorPrediction, DeviceThermal, ThermalStatus, WaferThermal } from "@/lib/api";
 import { C, MONO } from "@/lib/theme";
 import { SectionHeader } from "@/components/common/SectionHeader";
 import { formatPid, STATUS_COLORS, STATUS_LABELS, VERDICT_LABELS } from "@/lib/thermal";
@@ -25,18 +25,16 @@ function SummaryStat({ label, value, color }: { label: string; value: string; co
 // 「先預測、再驗證」的 wafer 檢視：預測摘要 → 80 個 device 的預測狀態矩陣 →
 // 點某個 device 看預測值/上限/實測/誤差/判定。不是等整片測完才分析。
 export function WaferThermalView({ data }: { data: WaferThermal }) {
-  const defaultSensor =
-    data.nextSensor ??
-    data.sensors.reduce((best, s) => {
-      const alarms = (x: ThermalSensorMeta) =>
-        data.devices.filter((d) => {
-          const p = predictionOf(d, x.index);
-          return p && (p.status === "warning" || p.status === "critical");
-        }).length;
-      return alarms(s) > alarms(best) ? s : best;
-    }, data.sensors[0]).index;
+  // 測試尚未完成時看下一個待測 sensor；全部完成後回到 sensor1，
+  // 不用警報數量決定預設頁面，避免畫面跳到非流程中的 sensor。
+  const preferredSensor = data.nextSensor ?? data.sensors[0]?.index ?? 0;
+  const [sensorIndex, setSensorIndex] = useState<number>(preferredSensor);
 
-  const [sensorIndex, setSensorIndex] = useState<number>(defaultSensor);
+  // 後端每 5 秒更新一次 live thermal。只有 wafer 或測試進度改變時重設，
+  // 使用者手動點選其他已實測 sensor 時不會被一般輪詢覆蓋。
+  useEffect(() => {
+    setSensorIndex(preferredSensor);
+  }, [data.lot, data.wafer, data.nextSensor, preferredSensor]);
   // hover（或鍵盤 focus）時在該格旁邊浮出詳細卡片（位置由格子的 offset 算出，卡片本身
   // 不接收滑鼠事件，避免游標移進卡片造成閃爍）。
   const [hover, setHover] = useState<{ pid: string; left: number; top: number; height: number; above: boolean } | null>(null);
