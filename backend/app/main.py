@@ -36,6 +36,12 @@ def dashboard_snapshot() -> dict:
     return runtime_state.snapshot()
 
 
+@app.get("/api/alerts")
+def alerts() -> list[dict]:
+    """Structured anomaly alerts for the dashboard and future WebSocket push."""
+    return runtime_state.alerts()
+
+
 @app.get("/api/sites")
 def sites() -> list[dict]:
     return runtime_state.site_summaries()

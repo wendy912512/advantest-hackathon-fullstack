@@ -41,6 +41,16 @@ def _as_float(value: str) -> float | None:
         return None
 
 
+def _normalise_limits(low_limit: float | None, high_limit: float | None) -> tuple[float | None, float | None]:
+    """Return mathematical (low, high), even when a fixture labels rows backwards."""
+    limits = [value for value in (low_limit, high_limit) if value is not None]
+    if not limits:
+        return None, None
+    if len(limits) == 1:
+        return limits[0], limits[0]
+    return min(limits), max(limits)
+
+
 def _as_pass_fail(value: str, soft_bin: int) -> str:
     value = value.strip().upper()
     if value in {"PASS", "P", "TRUE", "1", "Y", "YES"}:
@@ -131,6 +141,10 @@ def _import_wide_raw_result(
             value = _as_float(row[column_index] if column_index < len(row) else "")
             if value is None:
                 continue
+            low_limit, high_limit = _normalise_limits(
+                _as_float(low_limits[column_index] if column_index < len(low_limits) else ""),
+                _as_float(high_limits[column_index] if column_index < len(high_limits) else ""),
+            )
             results.append(TestResultField(
                 testNumber=_wide_test_number(
                     header[column_index],
@@ -142,8 +156,8 @@ def _import_wide_raw_result(
                 kind="PARAMETRIC",
                 value=value,
                 unit=None,
-                lowLimit=_as_float(low_limits[column_index] if column_index < len(low_limits) else ""),
-                highLimit=_as_float(high_limits[column_index] if column_index < len(high_limits) else ""),
+                lowLimit=low_limit,
+                highLimit=high_limit,
                 **{"pass": pf == "PASS"},
             ))
         runtime_state.record_test_end(DeviceTestResult(
@@ -228,6 +242,10 @@ def import_csv(
         for row_index, row in enumerate(device_rows, start=1):
             value = _as_float(_lookup(row, "value", "resultvalue", "result_value", "measuredvalue"))
             passed = _as_pass_fail(_lookup(row, "pass", "passed", "pf", "passfail"), soft_bin) == "PASS"
+            low_limit, high_limit = _normalise_limits(
+                _as_float(_lookup(row, "lowlimit", "low_limit", "lolimit")),
+                _as_float(_lookup(row, "highlimit", "high_limit", "hilimit")),
+            )
             results.append(TestResultField(
                 testNumber=_as_int(_lookup(row, "testnumber", "test_number", "testnum"), default=row_index),
                 testSuiteName=_lookup(row, "testsuitename", "testsuite", "test_suite", "testname", default="RawResult"),
@@ -235,8 +253,8 @@ def import_csv(
                 kind=_test_kind(_lookup(row, "kind", "testkind", "test_type")),
                 value=value,
                 unit=_lookup(row, "unit") or None,
-                lowLimit=_as_float(_lookup(row, "lowlimit", "low_limit", "lolimit")),
-                highLimit=_as_float(_lookup(row, "highlimit", "high_limit", "hilimit")),
+                lowLimit=low_limit,
+                highLimit=high_limit,
                 **{"pass": passed},
             ))
         runtime_state.record_test_end(DeviceTestResult(

@@ -7,6 +7,9 @@ from math import sqrt
 from threading import RLock
 from typing import Any
 
+from .alert_manager import AlertManager
+from .anomaly_engine import AnomalyEngine
+from .models import Measurement as AnomalyMeasurement
 from .schemas import DeviceTestResult, Measurement, TestResultField
 
 
@@ -41,6 +44,10 @@ class RuntimeState:
     pending_measurements: dict[int, list[Measurement]] = field(
         default_factory=lambda: defaultdict(list)
     )
+    anomaly_engine: AnomalyEngine = field(default_factory=AnomalyEngine, repr=False)
+    alert_manager: AlertManager = field(default_factory=AlertManager, repr=False)
+    live_alerts: list[dict[str, Any]] = field(default_factory=list, repr=False)
+    last_wafer_report: dict[str, Any] | None = field(default=None, repr=False)
     lock: RLock = field(default_factory=RLock, repr=False)
 
     def start_lot(self, lot: str) -> None:
@@ -49,15 +56,46 @@ class RuntimeState:
             self.wafer = "-"
             self.devices.clear()
             self.pending_measurements.clear()
+            self.live_alerts.clear()
+            self.last_wafer_report = None
 
     def start_wafer(self, wafer: str, radius: int = 20) -> None:
         with self.lock:
             self.wafer = wafer
             self.wafer_radius = radius
 
-    def record_measurement(self, measurement: Measurement) -> None:
+    def finish_wafer(self) -> dict[str, Any]:
+        """Freeze the current wafer summary when ONEAPI emits WAFEREND."""
+        report = {
+            "generatedAt": now_iso(),
+            "lot": self.lot,
+            "wafer": self.wafer,
+            "alerts": self.anomaly_alerts(),
+            "devices": len(self.devices),
+        }
+        with self.lock:
+            self.last_wafer_report = report
+        return report
+
+    def record_measurement(self, measurement: Measurement, set_message=None) -> None:
         with self.lock:
             self.pending_measurements[measurement.site].append(measurement)
+            alert_measurement = AnomalyMeasurement(
+                tester_id="testerA",
+                lot_id=self.lot,
+                wafer_id=self.wafer,
+                site=measurement.site,
+                test_name=measurement.testSuiteName,
+                value=measurement.value or 0.0,
+                unit=measurement.unit,
+                low_limit=measurement.lowLimit,
+                high_limit=measurement.highLimit,
+                passed=measurement.passed,
+            )
+            for alert in self.anomaly_engine.evaluate_measurement(alert_measurement).alerts:
+                if self.alert_manager.publish(alert, set_message):
+                    self.live_alerts.append(alert.as_dict())
+            self.live_alerts = self.live_alerts[-100:]
 
     def record_test_end(self, result: DeviceTestResult) -> None:
         with self.lock:
@@ -77,7 +115,40 @@ class RuntimeState:
             devices = [entry.model_copy(deep=True) for entry in self.devices]
             lot = self.lot
             wafer = self.wafer
-        return build_snapshot(devices, lot, wafer)
+        return build_snapshot(devices, lot, wafer, self.anomaly_alerts())
+
+    def anomaly_alerts(self) -> list[dict[str, Any]]:
+        with self.lock:
+            devices = [entry.model_copy(deep=True) for entry in self.devices]
+            lot = self.lot
+            wafer = self.wafer
+        measurements = []
+        for touchdown_index, entry in enumerate(devices):
+            for result in entry.results:
+                if result.value is None:
+                    continue
+                measurements.append(AnomalyMeasurement(
+                    tester_id="testerA",
+                    lot_id=entry.device.lot or lot,
+                    wafer_id=entry.device.wafer or wafer,
+                    site=entry.device.site,
+                    test_name=result.testSuiteName,
+                    value=result.value,
+                    unit=result.unit,
+                    low_limit=result.lowLimit,
+                    high_limit=result.highLimit,
+                    touchdown_index=touchdown_index,
+                    x=entry.device.x,
+                    y=entry.device.y,
+                    soft_bin=entry.device.softBin,
+                    hard_bin=entry.device.hardBin,
+                    passed=result.pass_,
+                ))
+        alerts = [alert.as_dict() for alert in self.anomaly_engine.evaluate_wafer(measurements).alerts]
+        return self.live_alerts[-100:] + alerts
+
+    def alerts(self) -> list[dict[str, Any]]:
+        return self.anomaly_alerts()
 
     def site_summaries(self) -> list[dict[str, Any]]:
         with self.lock:
@@ -273,10 +344,15 @@ def build_site_summaries(entries: list[DeviceTestResult]) -> list[dict[str, Any]
     return summaries
 
 
-def build_snapshot(entries: list[DeviceTestResult], lot: str, wafer: str) -> dict[str, Any]:
+def build_snapshot(
+    entries: list[DeviceTestResult],
+    lot: str,
+    wafer: str,
+    anomaly_alerts: list[dict[str, Any]] | None = None,
+) -> dict[str, Any]:
     pass_rate = sum(entry.device.pf == "PASS" for entry in entries) / len(entries) if entries else 0
     site_summaries = build_site_summaries(entries)
-    alerts = [
+    site_alerts = [
         {
             "id": f"site-{summary['site']}-imbalance",
             "site": summary["site"],
@@ -286,6 +362,18 @@ def build_snapshot(entries: list[DeviceTestResult], lot: str, wafer: str) -> dic
             "message": summary["anomalyReason"],
         }
         for summary in site_summaries if summary["isAnomalous"]
+    ]
+    rule_alerts = anomaly_alerts or []
+    alerts = site_alerts + [
+        {
+            "id": f"{alert['wafer']}-{alert['type']}-{alert.get('testName') or 'wafer'}-{alert.get('site') or 'all'}",
+            "site": alert.get("site") or 0,
+            "testSuiteName": alert.get("testName") or "WAFER",
+            "direction": "SHIFT",
+            "detectedAt": now_iso(),
+            "message": alert["message"],
+        }
+        for alert in rule_alerts
     ]
     return {
         "generatedAt": now_iso(),
