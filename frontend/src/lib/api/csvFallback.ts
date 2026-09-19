@@ -1,7 +1,14 @@
 import type {
+  DashboardSnapshot,
+  DeviceTestResult,
+  FailureExplanation,
+  LotListItem,
+  LotSummary,
   SensorStage,
+  SiteSummary,
   ThermalStatus,
   ThermalVerdict,
+  TrendSeries,
   WaferFails,
   WaferMapData,
   WaferThermal,
@@ -9,11 +16,52 @@ import type {
 import thermalFixture from "./thermalFixture.json";
 import failFixtures from "./failFixtures.json";
 import waferMapFixtures from "./waferMapFixtures.json";
+import csvSummaryFixtures from "./csvSummaryFixtures.json";
 
 type FixtureMap = Record<string, WaferMapData>;
 type FailFixture = { events: WaferFails["events"]; rows: WaferFails["rows"] };
 
 const LIVE_LOT = "A12345";
+
+type SummaryFixtures = {
+  dashboard: DashboardSnapshot;
+  siteSummaries: SiteSummary[];
+  siteResults: Record<string, DeviceTestResult[]>;
+  lots: LotListItem[];
+  lotSummaries: Record<string, LotSummary | null>;
+  trends: TrendSeries[];
+  explanations: FailureExplanation[];
+};
+
+const summaryFixtures = csvSummaryFixtures as SummaryFixtures;
+
+export function getCsvDashboard(): DashboardSnapshot {
+  return summaryFixtures.dashboard;
+}
+
+export function getCsvSiteSummaries(): SiteSummary[] {
+  return summaryFixtures.siteSummaries;
+}
+
+export function getCsvSiteResults(site: number): DeviceTestResult[] {
+  return summaryFixtures.siteResults[String(site)] ?? [];
+}
+
+export function getCsvLots(): LotListItem[] {
+  return summaryFixtures.lots;
+}
+
+export function getCsvLotSummary(lot: string): LotSummary | undefined {
+  return summaryFixtures.lotSummaries[lot] ?? undefined;
+}
+
+export function getCsvTrends(): TrendSeries[] {
+  return summaryFixtures.trends;
+}
+
+export function getCsvExplanations(limit: number): FailureExplanation[] {
+  return summaryFixtures.explanations.slice(0, limit);
+}
 
 export function getCsvWaferMap(lot: string, wafer: string): WaferMapData | undefined {
   if (lot !== LIVE_LOT) return undefined;

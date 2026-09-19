@@ -1,5 +1,6 @@
 import type { TrendSeries } from "./types";
 import { apiClient } from "./client";
+import { getCsvTrends } from "./csvFallback";
 import { fetchWithFallback } from "./withFallback";
 
 // 後端現在會用已載入的 CSV/OneAPI 資料計算 baseline、管制界線與趨勢告警。
@@ -11,7 +12,7 @@ export async function fetchTrendSeries(): Promise<TrendSeries[]> {
       const { data } = await apiClient.get<TrendSeries[]>("/trends");
       return data;
     },
-    () => [],
+    getCsvTrends,
     (data) => !data || data.length === 0,
   );
 }

@@ -17,7 +17,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from app.csv_import import import_csv  # noqa: E402
-from app.state import now_iso, runtime_state  # noqa: E402
+from app.state import build_snapshot, now_iso, runtime_state  # noqa: E402
 from app.thermal import WARN_MARGIN, build_wafer_thermal  # noqa: E402
 
 if len(sys.argv) != 2:
@@ -84,3 +84,29 @@ if len(csv_paths) > 1:
     map_out = out.parent / "waferMapFixtures.json"
     map_out.write_text(json.dumps(wafer_maps, ensure_ascii=False, separators=(",", ":")), encoding="utf-8")
     print("wrote", map_out, len(wafer_maps), "wafer fixtures")
+
+    # Keep every frontend fallback on the same 25-CSV-derived backend logic.
+    # W01 is the initial dashboard context; users can still switch to W02-W25.
+    runtime_state.start_wafer("W01")
+    w01_devices = [
+        entry.model_copy(deep=True)
+        for entry in runtime_state.devices
+        if entry.device.wafer == "W01"
+    ]
+    summary_fixtures = {
+        "dashboard": build_snapshot(w01_devices, "A12345", "W01", []),
+        "siteSummaries": runtime_state.site_summaries(),
+        "siteResults": {
+            str(site): runtime_state.site_results(site)
+            for site in sorted({entry.device.site for entry in runtime_state.devices})
+        },
+        "lots": runtime_state.lots(),
+        "lotSummaries": {
+            "A12345": runtime_state.lot_summary("A12345"),
+        },
+        "trends": runtime_state.trends(),
+        "explanations": runtime_state.failure_explanations(100),
+    }
+    summary_out = out.parent / "csvSummaryFixtures.json"
+    summary_out.write_text(json.dumps(summary_fixtures, ensure_ascii=False, separators=(",", ":")), encoding="utf-8")
+    print("wrote", summary_out)
