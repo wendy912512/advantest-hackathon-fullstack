@@ -39,23 +39,6 @@ class AnomalyEngineTests(unittest.TestCase):
         result = AnomalyEngine().evaluate_wafer(values)
         self.assertIn(AnomalyType.MEAN_TREND_UP, {alert.anomaly_type for alert in result.alerts})
 
-    def test_segment_stdev_down_requires_consecutive_changes(self):
-        values = [
-            Measurement(
-                tester_id="testerA",
-                lot_id="LOT-1",
-                wafer_id="W25",
-                site=0,
-                test_name="Main.subflow1",
-                value=value,
-                touchdown_index=index,
-                metadata={"profile_group": "Main.subflow1", "aggregate_series": "segment_stdev"},
-            )
-            for index, value in enumerate((1.0, 0.75, 0.55, 0.60))
-        ]
-        result = AnomalyEngine().evaluate_wafer(values)
-        self.assertIn(AnomalyType.STDEV_TREND_DOWN, {alert.anomaly_type for alert in result.alerts})
-
 
 if __name__ == "__main__":
     unittest.main()

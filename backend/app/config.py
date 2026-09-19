@@ -27,9 +27,4 @@ class RuleConfig:
     aggregate_stdev_normalized_slope: float = 0.00001
     profile_stdev_r2: float = 0.2
     profile_stdev_normalized_slope: float = 0.0003
-    # Segment profile stdev changes: four device-order segments, with two
-    # consecutive changes required to avoid single-transition noise.
-    segment_profile_count: int = 4
-    segment_profile_change: float = 0.15
-    segment_profile_confirmations: int = 2
     alert_cooldown_seconds: float = 30.0

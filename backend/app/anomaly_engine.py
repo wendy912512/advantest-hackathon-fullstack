@@ -294,47 +294,4 @@ class AnomalyEngine:
                         evidence={"slope": stdev_slope, "normalizedSlope": normalized_stdev_slope, "r2": stdev_r2, "window": 1},
                     ))
 
-            segment_groups = series.get("segment_stdev", {})
-            if len(segment_groups) < self.config.segment_profile_count:
-                continue
-            segments = [average(segment_groups[index]) for index in sorted(segment_groups)]
-            if len(segments) < self.config.segment_profile_count:
-                continue
-            changes = [
-                (current - previous) / (abs(previous) or 1.0)
-                for previous, current in zip(segments, segments[1:])
-            ]
-            down_runs = self._consecutive_changes(changes, direction="down")
-            up_runs = self._consecutive_changes(changes, direction="up")
-            direction = None
-            if down_runs >= self.config.segment_profile_confirmations:
-                direction = "down"
-            elif up_runs >= self.config.segment_profile_confirmations:
-                direction = "up"
-            if direction is not None:
-                alerts.append(Alert(
-                    anomaly_type=AnomalyType.STDEV_TREND_DOWN if direction == "down" else AnomalyType.STDEV_TREND_UP,
-                    severity="warning",
-                    message=f"{group} 分段 Stdev Trend {'Down' if direction == 'down' else 'Up'}：segments={[round(value, 6) for value in segments]}",
-                    tester_id=first.tester_id, lot_id=first.lot_id, wafer_id=first.wafer_id,
-                    test_name=group,
-                    evidence={
-                        "segments": segments,
-                        "relativeChanges": changes,
-                        "changeThreshold": self.config.segment_profile_change,
-                        "confirmations": self.config.segment_profile_confirmations,
-                    },
-                ))
         return alerts
-
-    def _consecutive_changes(self, changes: list[float], *, direction: str) -> int:
-        threshold = self.config.segment_profile_change
-        target = (lambda value: value <= -threshold) if direction == "down" else (lambda value: value >= threshold)
-        longest = current = 0
-        for change in changes:
-            if target(change):
-                current += 1
-                longest = max(longest, current)
-            else:
-                current = 0
-        return longest
