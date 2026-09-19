@@ -30,7 +30,16 @@
 
 ## 尚未開發 ❌
 
-場景一的 5 個功能頁面皆已完成。場景二目前只有架構雛形，**最優先待辦是拿到官方 CSV 資料集（25 訓練 + 4 評估）後，把 `/temperature` 的線性推估換成真正的預測模型**。其餘可視需求擴充：Multi-parameter correlation 分析、Lot-to-lot variation 比較、更進階的 SPC 規則（Nelson rules 全套）、真正的模型推論取代規則式解釋器等。
+場景一的 5 個功能頁面皆已完成。場景二目前只有架構雛形，**最優先待辦是把 `/temperature` 換成真正符合官方協議的實作（預測 6 個 sensor、走 ONEAPI Action 通道，非 REST）**，此部分屬於資料分析/後端夥伴的工作範圍。其餘可視需求擴充：Multi-parameter correlation 分析、Lot-to-lot variation 比較、更進階的 SPC 規則（Nelson rules 全套）、真正的模型推論取代規則式解釋器等。
+
+### 待排入的新視覺化構想（來自後端組員「總架構」規劃文件，2026-09-19）
+
+| 構想 | 說明 | 對應頁面/資料 |
+| --- | --- | --- |
+| Site Imbalance Boxplot | Site 1-4 並排箱型圖，取代/補充目前的卡片式 mean/std 呈現，能一眼看出分布差異與離群值 | `/sites/[id]`，資料源同 `GET /api/site-distribution` |
+| Thermal Model Validation Console | 6 個 sensor 的「預測值 vs 實際值」殘差追蹤，用來驗證場景二模型準度，而不只是單純顯示預測結果 | `/temperature`，資料源 `GET /api/temperature-telemetry`（後端已確認端點） |
+
+兩者目前僅列入待做清單，尚未開始實作；待場景二真實模型與 API 就緒後再評估優先順序。
 
 ---
 
