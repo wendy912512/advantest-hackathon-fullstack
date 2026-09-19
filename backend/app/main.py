@@ -21,7 +21,11 @@ async def lifespan(_: FastAPI):
     # Wafer Map 與 Fail Table 都來自同一片 wafer。正式接 OneAPI 時可用
     # ADVANTEST_MOCK_CSV=off 關閉；若找不到檔案則維持空狀態，交給前端 fallback。
     mock_enabled = os.getenv("ADVANTEST_MOCK_CSV", "on").lower() not in {"0", "false", "off", "no"}
-    default_data_dir = Path(__file__).resolve().parents[3] / "training" / "Data"
+    # 優先讀 fullstack repo 內的公開訓練資料；保留 repo 外層路徑作為舊環境
+    # 相容 fallback，讓既有 VM checkout 也能繼續啟動。
+    repo_data_dir = Path(__file__).resolve().parents[2] / "training" / "Data"
+    legacy_data_dir = Path(__file__).resolve().parents[3] / "training" / "Data"
+    default_data_dir = repo_data_dir if repo_data_dir.is_dir() else legacy_data_dir
     csv_value = os.getenv("ADVANTEST_MOCK_CSV_PATH")
     if csv_value:
         csv_paths = [Path(csv_value).expanduser()]
