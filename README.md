@@ -37,16 +37,12 @@ frontend/
 
 ### 前端
 
-在 `frontend/` 建立 `.env.local`：
-
-```text
-NEXT_PUBLIC_API_BASE_URL=http://127.0.0.1:8080/api
-```
+在 `frontend/` 建立 `.env`：
 
 接著執行：
 
-```powershell
-cd frontend
+```cmd
+cd /d C:\advantest-hackathon-fullstack\frontend
 npm install
 npm run dev
 ```
@@ -57,12 +53,12 @@ npm run dev
 
 另開終端機執行：
 
-```powershell
-cd backend
-python -m venv .venv
-.\.venv\Scripts\Activate.ps1
-python -m pip install -r requirements.txt
-uvicorn app.main:app --reload --port 8080
+```cmd
+cd /d C:\advantest-hackathon-fullstack\backend
+py -m venv .venv
+.venv\Scripts\activate.bat
+py -m pip install -r requirements.txt
+py -m uvicorn app.main:app --reload --port 8080
 ```
 
 健康檢查：<http://127.0.0.1:8080/health>。
