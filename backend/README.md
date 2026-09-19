@@ -59,7 +59,7 @@ $env:ADVANTEST_MOCK_CSV = "off"
 
 `GET /api/lots/{lot}/wafers/{wafer}/fails`：只回傳 Fail 資料，一列 = 一顆 fail device 的一個超標事件（PID、X、Y、High/Low Limit、實際數值、SBin/HBin、事件編號如 `220_Main.Suite1#CP`、事件涵義）。CSV 匯入時會檢查全部約 3000 個測項有沒有超出上下限（真實 W01：23 個事件、34 筆、12 顆 fail device），`events` 是給前端下拉選單用的事件清單。
 
-- **Bin 名稱**：只顯示官方 SmarTest bin table 有的內容（`DefineBins.java` / `py-app.log`）：Bin 1 叫 `passed`，其餘是 `bin2`…`bin32`，沒有更細的說明，所以不自己編涵義（`app/bin_labels.py`、`frontend/src/lib/binLabels.ts`）。之前 demo 用的 Leakage / Timing / Functional Fail 是編的，已移除。拿到真實 bin 定義後再補。
+- **Bin 名稱**：Bin 1 確認代表「通過」；其他 bin 目前沒有更細的失敗原因，因此 UI 統一顯示「測試失敗」，不直接呈現 `bin2`、`bin3` 等內部編號。拿到正式 bin 定義後再補上細分類（`app/bin_labels.py`、`frontend/src/lib/binLabels.ts`）。
 - **事件涵義**：只有名稱本身有明確依據的才寫——`sensorN`（官方題目點名的溫度 sensor）與 `IDDQ_flow` 底下的測項；其餘約 3000 個 suite 沒有任何說明，涵義欄不顯示（`app/events.py`）。
 
 請勿將 ACS Gemini、Edge 或 ONEAPI 的帳號、Token、密鑰與內部連線資訊提交到 Git。

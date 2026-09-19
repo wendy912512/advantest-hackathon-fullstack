@@ -3,16 +3,28 @@
 import { useState } from "react";
 import type { WaferMapData } from "@/lib/api";
 import { C } from "@/lib/theme";
-import { BIN_COLORS } from "@/lib/binLabels";
+import { BIN_COLORS, binLabel } from "@/lib/binLabels";
 
 // 抽成共用元件：Sites 頁（單一 wafer 檢視）跟 Wafer Browser 頁（點 wafer grid
 // 檢視）都要畫同一種圓形 wafer map。
 export function WaferMap({ data, size = 280 }: { data: WaferMapData; size?: number }) {
   const [hovered, setHovered] = useState<WaferMapData["points"][number] | null>(null);
-  const scale = (size / 2 - 6) / data.radius;
+  // 不直接把 CSV 的 X/Y 當成固定半徑座標：訓練資料的座標範圍約為 0~11，
+  // 但 API 預設半徑是 20，直接相除會讓所有 device 縮在圓心。先依目前
+  // wafer 的座標範圍置中並填滿可視圓盤；真正的圓半徑仍由外框表達。
+  const xValues = data.points.map((point) => point.x);
+  const yValues = data.points.map((point) => point.y);
+  const minX = Math.min(...xValues, 0);
+  const maxX = Math.max(...xValues, 0);
+  const minY = Math.min(...yValues, 0);
+  const maxY = Math.max(...yValues, 0);
+  const coordinateCenterX = (minX + maxX) / 2;
+  const coordinateCenterY = (minY + maxY) / 2;
+  const coordinateRadius = Math.max((maxX - minX) / 2, (maxY - minY) / 2, 1);
+  const scale = (size / 2 - 14) / coordinateRadius;
   const center = size / 2;
-  const toSvgX = (x: number) => center + x * scale;
-  const toSvgY = (y: number) => center - y * scale;
+  const toSvgX = (x: number) => center + (x - coordinateCenterX) * scale;
+  const toSvgY = (y: number) => center - (y - coordinateCenterY) * scale;
   const tooltipLeft = hovered ? (toSvgX(hovered.x) < center ? size + 18 : -175) : 0;
   const tooltipTop = hovered ? Math.max(Math.min(toSvgY(hovered.y) - 34, size - 82), 8) : 0;
   return (
@@ -25,7 +37,7 @@ export function WaferMap({ data, size = 280 }: { data: WaferMapData; size?: numb
             cx={toSvgX(p.x)}
             cy={toSvgY(p.y)}
             r={p.pf === "FAIL" ? 3 : 2.4}
-            fill={p.pf === "FAIL" ? (BIN_COLORS[p.softBin] ?? C.red) : BIN_COLORS[1]}
+            fill={p.pf === "FAIL" ? C.red : BIN_COLORS[1]}
             opacity={p.pf === "FAIL" ? 0.85 : 0.55}
             style={{ cursor: "pointer" }}
             onMouseEnter={() => setHovered(p)}
@@ -99,8 +111,8 @@ export function WaferMap({ data, size = 280 }: { data: WaferMapData; size?: numb
             <span style={{ color: "#374151", fontWeight: 600 }}>{hovered.x} / {hovered.y}</span>
             <span style={{ color: "#9CA3AF" }}>狀態</span>
             <span style={{ color: hovered.pf === "PASS" ? "#16803A" : "#C62828", fontWeight: 700 }}>{hovered.pf === "PASS" ? "正常" : "Fail"}</span>
-            <span style={{ color: "#9CA3AF" }}>SBin</span>
-            <span style={{ color: "#374151" }}>{hovered.softBin}</span>
+            <span style={{ color: "#9CA3AF" }}>結果</span>
+            <span style={{ color: "#374151" }}>{binLabel(hovered.softBin)}</span>
           </div>
         </div>
       )}

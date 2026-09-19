@@ -181,7 +181,8 @@ function generateDevice(site: number, lot: string, wafer: string, rand: () => nu
 export const LIVE_LOT = "A12345";
 export const LIVE_WAFER = "W01";
 
-export function generateMockResults(count = 240): DeviceTestResult[] {
+// 與每片 A12345 wafer 的 RawResult CSV 對齊：80 個 Device，4 個 Site 各 20 個。
+export function generateMockResults(count = 80): DeviceTestResult[] {
   const rand = seededRandom(42);
   const results: DeviceTestResult[] = [];
   for (let i = 0; i < count; i += 1) {

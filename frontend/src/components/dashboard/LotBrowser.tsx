@@ -1,11 +1,10 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, Cell } from "recharts";
 import type { LotSummary, WaferListItem, WaferMapData } from "@/lib/api";
 import { fetchLotSummary, fetchWaferMapData } from "@/lib/api";
 import { C, MONO } from "@/lib/theme";
-import { BIN_COLORS, binLabel } from "@/lib/binLabels";
+import { BIN_COLORS } from "@/lib/binLabels";
 import { WaferMap } from "@/components/common/WaferMap";
 
 function WaferThumb({ wafer, active, onClick }: { wafer: WaferListItem; active: boolean; onClick: () => void }) {
@@ -71,12 +70,6 @@ export function LotBrowser({ lot }: { lot: string }) {
     };
   }, [lot, selectedWafer]);
 
-  const binPareto = summary?.softBinBreakdown.map((b) => ({
-    bin: b.label,
-    count: b.count,
-    fill: BIN_COLORS[b.bin] ?? "#9E9E9E",
-  }));
-
   if (!summary) {
     return <div style={{ color: C.muted, fontSize: 14 }}>載入批次資料中…</div>;
   }
@@ -107,54 +100,41 @@ export function LotBrowser({ lot }: { lot: string }) {
             ))}
           </div>
         )}
+      </div>
 
-        {binPareto && binPareto.length > 0 && (
-          <div style={{ marginBottom: 16 }}>
-            <div style={{ fontFamily: MONO, fontSize: 11, color: C.muted, letterSpacing: "0.06em", marginBottom: 8 }}>SOFT BIN PARETO</div>
-            <ResponsiveContainer width="100%" height={80}>
-              <BarChart data={binPareto} margin={{ top: 0, right: 0, bottom: 0, left: 0 }}>
-                <XAxis dataKey="bin" tick={{ fontSize: 11, fill: C.muted }} tickLine={false} axisLine={false} />
-                <YAxis hide />
-                <Tooltip contentStyle={{ background: C.card, border: `1px solid ${C.border}`, borderRadius: 8, fontSize: 12 }} labelStyle={{ color: C.muted }} itemStyle={{ color: C.text }} />
-                <Bar dataKey="count" radius={3}>
-                  {binPareto.map((e) => (
-                    <Cell key={e.bin} fill={e.fill} opacity={0.75} />
-                  ))}
-                </Bar>
-              </BarChart>
-            </ResponsiveContainer>
-          </div>
-        )}
-
+      <div style={{ border: `1px solid ${C.border}`, borderRadius: 12, padding: 16, background: C.card, marginBottom: 12, boxShadow: C.shadow }}>
         <div style={{ fontFamily: MONO, fontSize: 11, color: C.muted, letterSpacing: "0.06em", marginBottom: 10 }}>WAFER GRID — CLICK TO INSPECT</div>
         <div style={{ display: "flex", flexWrap: "wrap", gap: 2 }}>
           {summary.wafers.map((w) => (
-            <WaferThumb key={w.wafer} wafer={w} active={selectedWafer === w.wafer} onClick={() => setSelectedWafer(selectedWafer === w.wafer ? null : w.wafer)} />
+            <WaferThumb key={w.wafer} wafer={w} active={selectedWafer === w.wafer} onClick={() => setSelectedWafer(w.wafer)} />
           ))}
         </div>
-      </div>
 
-      {waferMap && (
-        <div style={{ border: `1px solid ${C.border}`, borderRadius: 12, padding: 16, background: C.card, boxShadow: C.shadow }}>
-          <div style={{ display: "flex", flexWrap: "wrap", alignItems: "center", gap: 16, marginBottom: 16 }}>
+        {waferMap && (
+          <div style={{ marginTop: 18, paddingTop: 16, borderTop: `1px solid ${C.borderLight}` }}>
+            <div style={{ display: "flex", flexWrap: "wrap", alignItems: "center", gap: 16, marginBottom: 16 }}>
             <div>
               <div style={{ fontSize: 12, color: C.muted, marginBottom: 2 }}>WAFER</div>
               <div style={{ fontFamily: MONO, fontSize: 16, fontWeight: 600, color: C.text }}>{waferMap.wafer}</div>
             </div>
             <div style={{ display: "flex", flexWrap: "wrap", alignItems: "center", gap: 10 }}>
-              {Object.entries(BIN_COLORS).map(([bin, color]) => (
-                <span key={bin} style={{ display: "flex", alignItems: "center", gap: 5, fontSize: 12, color: C.muted }}>
+              {[
+                { label: "通過", color: BIN_COLORS[1] },
+                { label: "測試失敗", color: C.red },
+              ].map(({ label, color }) => (
+                <span key={label} style={{ display: "flex", alignItems: "center", gap: 5, fontSize: 12, color: C.muted }}>
                   <span style={{ width: 10, height: 10, borderRadius: 2, background: color, display: "inline-block" }} />
-                  {binLabel(Number(bin))}
+                  {label}
                 </span>
               ))}
             </div>
+            </div>
+            <div style={{ display: "flex", justifyContent: "center" }}>
+              <WaferMap data={waferMap} />
+            </div>
           </div>
-          <div style={{ display: "flex", justifyContent: "center" }}>
-            <WaferMap data={waferMap} />
-          </div>
-        </div>
-      )}
+        )}
+      </div>
     </div>
   );
 }

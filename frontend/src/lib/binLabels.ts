@@ -1,13 +1,11 @@
-// Bin 名稱：只顯示官方 bin table 有的內容（SmarTest 的 DefineBins.java 與
-// py-app.log 印出來的）——Bin 1 叫 "passed"，其餘是 bin2…bin32，沒有更細的
-// 說明，所以不自己編涵義。之後拿到真實的 bin 定義再加在這裡，並同步
-// backend/app/bin_labels.py。
+// CSV/OneAPI 只保證 Bin 1 代表通過；其他 Bin 目前沒有提供更細的失敗原因。
+// UI 因此顯示可理解的狀態，不把 bin2、bin3 這類內部編號當成使用者訊息。
 export const SOFT_BIN_LABELS: Record<number, string> = {
-  1: "passed",
+  1: "通過",
 };
 
 export const HARD_BIN_LABELS: Record<number, string> = {
-  1: "passed",
+  1: "通過",
 };
 
 export const BIN_COLORS: Record<number, string> = {
@@ -18,20 +16,20 @@ export const BIN_COLORS: Record<number, string> = {
 };
 
 export function binLabel(bin: number): string {
-  return SOFT_BIN_LABELS[bin] ?? `bin${bin}`;
+  return SOFT_BIN_LABELS[bin] ?? "測試失敗";
 }
 
 export function hardBinLabel(bin: number): string {
-  return HARD_BIN_LABELS[bin] ?? `bin${bin}`;
+  return HARD_BIN_LABELS[bin] ?? "測試失敗";
 }
 
 export function binColor(bin: number): string {
   return BIN_COLORS[bin] ?? "#9E9E9E";
 }
 
-// 表格用：官方名稱本身就含編號（bin3）時只寫名稱，不重複成「3（bin3）」
-function formatBin(bin: number, name: string): string {
-  return name === `bin${bin}` ? name : `${bin}（${name}）`;
+// 表格用：只顯示使用者可理解的狀態名稱，不重複顯示內部 bin 編號。
+function formatBin(_bin: number, name: string): string {
+  return name;
 }
 
 export function formatSoftBin(bin: number): string {
