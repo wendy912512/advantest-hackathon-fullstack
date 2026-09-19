@@ -1,12 +1,26 @@
-import type { SiteSummary } from "@/lib/api";
 import { C, MONO, siteStatus } from "@/lib/theme";
 import { StatusDot } from "@/components/common/StatusDot";
 
-export function SiteCard({ site, onClick }: { site: SiteSummary; onClick: () => void }) {
+// 歷史 lot/wafer（非目前即時監控）只有 pass/fail per die，沒有原始量測值，
+// 算不出 mean/stdDev/boxplot——所以這裡故意比 SiteSummary 型別更寬鬆，
+// mean/stdDev/isAnomalous 都是可選的，缺席時卡片會少顯示那兩格數字，而不
+// 是硬塞假數字進去。
+export interface SiteCardData {
+  site: number;
+  passRate: number;
+  count?: number;
+  mean?: number;
+  stdDev?: number;
+  isAnomalous?: boolean;
+  anomalyReason?: string;
+}
+
+export function SiteCard({ site, selected, onClick }: { site: SiteCardData; selected?: boolean; onClick: () => void }) {
   const status = siteStatus(site.passRate, site.isAnomalous);
   const isError = status === "error";
   const isWarn = status === "warning";
   const passRatePct = site.passRate * 100;
+  const hasStats = site.mean !== undefined && site.stdDev !== undefined;
 
   return (
     <button
@@ -14,11 +28,15 @@ export function SiteCard({ site, onClick }: { site: SiteSummary; onClick: () => 
       className="text-left w-full transition-all duration-150 hover:shadow-md"
       style={{
         background: C.card,
-        border: `1px solid ${isError ? C.redBorder : isWarn ? C.yellowBorder : C.border}`,
+        border: `1px solid ${selected ? C.blue : isError ? C.redBorder : isWarn ? C.yellowBorder : C.border}`,
         borderRadius: 12,
         padding: "16px 18px",
         cursor: "pointer",
-        boxShadow: isError ? `${C.shadowMd}, 0 0 0 1px ${C.redBorder}` : C.shadow,
+        boxShadow: selected
+          ? `${C.shadowMd}, 0 0 0 2px ${C.blue}`
+          : isError
+            ? `${C.shadowMd}, 0 0 0 1px ${C.redBorder}`
+            : C.shadow,
       }}
     >
       <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 14 }}>
@@ -48,15 +66,23 @@ export function SiteCard({ site, onClick }: { site: SiteSummary; onClick: () => 
         <div style={{ fontFamily: MONO, fontSize: 12, marginTop: 4, color: C.muted }}>Pass Rate</div>
       </div>
       <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12, paddingTop: 12, borderTop: `1px solid ${C.borderLight}` }}>
-        {[
-          { label: "MEAN", val: site.mean.toFixed(3) },
-          { label: "STDEV", val: site.stdDev.toFixed(3) },
-        ].map(({ label, val }) => (
-          <div key={label}>
-            <div style={{ fontFamily: MONO, fontSize: 11, color: C.muted, marginBottom: 3, letterSpacing: "0.06em" }}>{label}</div>
-            <div style={{ fontFamily: MONO, fontSize: 14, fontWeight: 500, color: C.sub }}>{val}</div>
+        {hasStats ? (
+          <>
+            <div>
+              <div style={{ fontFamily: MONO, fontSize: 11, color: C.muted, marginBottom: 3, letterSpacing: "0.06em" }}>MEAN</div>
+              <div style={{ fontFamily: MONO, fontSize: 14, fontWeight: 500, color: C.sub }}>{site.mean!.toFixed(3)}</div>
+            </div>
+            <div>
+              <div style={{ fontFamily: MONO, fontSize: 11, color: C.muted, marginBottom: 3, letterSpacing: "0.06em" }}>STDEV</div>
+              <div style={{ fontFamily: MONO, fontSize: 14, fontWeight: 500, color: C.sub }}>{site.stdDev!.toFixed(3)}</div>
+            </div>
+          </>
+        ) : (
+          <div>
+            <div style={{ fontFamily: MONO, fontSize: 11, color: C.muted, marginBottom: 3, letterSpacing: "0.06em" }}>DEVICES</div>
+            <div style={{ fontFamily: MONO, fontSize: 14, fontWeight: 500, color: C.sub }}>{site.count ?? "—"}</div>
           </div>
-        ))}
+        )}
       </div>
       {site.anomalyReason && (
         <div style={{ marginTop: 12, padding: "8px 12px", borderRadius: 8, background: C.redBg, border: `1px solid ${C.redBorder}`, fontSize: 12, fontFamily: MONO, color: C.red }}>

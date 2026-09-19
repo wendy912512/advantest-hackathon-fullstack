@@ -5,6 +5,7 @@ from contextlib import asynccontextmanager
 
 from fastapi import FastAPI, HTTPException, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
+from pydantic import BaseModel, Field
 
 from .csv_import import CsvImportError, import_csv
 from .schemas import DeviceTestResult, LotStart, Measurement, WaferStart
@@ -67,6 +68,14 @@ def wafer_map(lot: str, wafer: str) -> dict:
     return data
 
 
+@app.get("/api/lots/{lot}/wafers/{wafer}/fails")
+def wafer_fails(lot: str, wafer: str) -> dict:
+    data = runtime_state.wafer_fails(lot, wafer)
+    if data is None:
+        raise HTTPException(status_code=404, detail="Wafer not found")
+    return data
+
+
 @app.get("/api/trends")
 def trends() -> list[dict]:
     return runtime_state.trends()
@@ -80,6 +89,14 @@ def failure_explanations(limit: int = 8) -> list[dict]:
 @app.get("/api/temperature/predict")
 def temperature_prediction() -> dict:
     return runtime_state.temperature_snapshot()
+
+
+@app.get("/api/thermal/wafers/{lot}/{wafer}")
+def thermal_wafer(lot: str, wafer: str) -> dict:
+    data = runtime_state.thermal_wafer(lot, wafer)
+    if data is None:
+        raise HTTPException(status_code=404, detail="No sensor data for this wafer")
+    return data
 
 
 @app.websocket("/ws/live-stream")
@@ -114,6 +131,16 @@ def ingest_measurement(event: Measurement) -> None:
 @app.post("/api/internal/test-end", status_code=204)
 def ingest_test_end(event: DeviceTestResult) -> None:
     runtime_state.record_test_end(event)
+
+
+class ThermalProgress(BaseModel):
+    completed: int = Field(ge=0, le=6)
+
+
+@app.post("/api/internal/thermal-progress", status_code=204)
+def set_thermal_progress(event: ThermalProgress) -> None:
+    """Demo control: how many sensors of the live wafer are already measured."""
+    runtime_state.set_thermal_progress(event.completed)
 
 
 @app.post("/api/internal/import-csv")

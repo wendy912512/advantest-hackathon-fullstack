@@ -6,6 +6,7 @@ from collections import defaultdict
 from pathlib import Path
 from typing import Any
 
+from .events import make_fail_event, normalise_limits
 from .schemas import DeviceInfo, DeviceTestResult, TestResultField
 from .state import now_iso, runtime_state
 
@@ -110,7 +111,13 @@ def _import_wide_raw_result(
         for index in range(10, len(header))
         if any(_as_float(row[index] if index < len(row) else "") is not None for row in device_rows)
     ]
-    selected_columns = candidate_columns[:measurement_limit]
+    # 場景二要預測 6 個 sensor 測項（header 形如 100_Main.sensor1#CP），不管
+    # measurement_limit 限制幾個欄位，這 6 個一定要保留，而且要維持原本的欄位
+    # 順序（預測 sensor K 時只能用排在它前面的欄位當 feature，避免 data leakage）。
+    sensor_columns = [
+        index for index in candidate_columns if re.search(r"\.sensor\d+#", header[index])
+    ]
+    selected_columns = sorted(set(candidate_columns[:measurement_limit]) | set(sensor_columns))
     if not selected_columns:
         raise CsvImportError("RawResult CSV 找不到可用的數值測項")
 
@@ -119,10 +126,34 @@ def _import_wide_raw_result(
     if reset:
         runtime_state.start_lot(imported_lot)
 
+    # 全部欄位（約 3000 個測項）都要檢查有沒有超出上下限，才能列出「Fail 異常事件」；
+    # 只有前 measurement_limit 個測項會存成完整量測值，其餘只保留超標的事件。
+    column_meta = {}
+    for column_index in candidate_columns:
+        low, high = normalise_limits(
+            _as_float(low_limits[column_index] if column_index < len(low_limits) else ""),
+            _as_float(high_limits[column_index] if column_index < len(high_limits) else ""),
+        )
+        if low is None or high is None:
+            continue
+        column_name = header[column_index]
+        column_meta[column_index] = (
+            _wide_test_number(column_name, test_numbers[column_index] if column_index < len(test_numbers) else "", column_index),
+            _wide_test_name(column_name),
+            (pins[column_index] if column_index < len(pins) else "") or None,
+            low,
+            high,
+        )
+
     result_count = 0
     for row_index, row in enumerate(device_rows, start=1):
         if len(row) < 10:
             continue
+        fail_events = []
+        for column_index, (number, suite, pin, low, high) in column_meta.items():
+            cell = _as_float(row[column_index] if column_index < len(row) else "")
+            if cell is not None and (cell < low or cell > high):
+                fail_events.append(make_fail_event(number, suite, pin, cell, low, high))
         soft_bin = _as_int(row[7] if len(row) > 7 else "", default=1)
         hard_bin = _as_int(row[8] if len(row) > 8 else "", default=soft_bin)
         pf = _as_pass_fail(row[6] if len(row) > 6 else "", soft_bin)
@@ -131,6 +162,10 @@ def _import_wide_raw_result(
             value = _as_float(row[column_index] if column_index < len(row) else "")
             if value is None:
                 continue
+            low, high = normalise_limits(
+                _as_float(low_limits[column_index] if column_index < len(low_limits) else ""),
+                _as_float(high_limits[column_index] if column_index < len(high_limits) else ""),
+            )
             results.append(TestResultField(
                 testNumber=_wide_test_number(
                     header[column_index],
@@ -142,8 +177,8 @@ def _import_wide_raw_result(
                 kind="PARAMETRIC",
                 value=value,
                 unit=None,
-                lowLimit=_as_float(low_limits[column_index] if column_index < len(low_limits) else ""),
-                highLimit=_as_float(high_limits[column_index] if column_index < len(high_limits) else ""),
+                lowLimit=low,
+                highLimit=high,
                 **{"pass": pf == "PASS"},
             ))
         runtime_state.record_test_end(DeviceTestResult(
@@ -160,6 +195,7 @@ def _import_wide_raw_result(
                 testTime=(row[9].strip() if len(row) > 9 else "") or now_iso(),
             ),
             results=results,
+            failEvents=fail_events,
         ))
         result_count += len(results)
 

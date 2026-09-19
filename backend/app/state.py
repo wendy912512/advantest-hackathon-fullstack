@@ -7,8 +7,10 @@ from math import sqrt
 from threading import RLock
 from typing import Any, Callable
 
-from .bin_labels import bin_label
+from .bin_labels import bin_label, hard_bin_label
+from .events import derive_fail_events
 from .schemas import DeviceTestResult, Measurement, TestResultField
+from .thermal import build_wafer_thermal, sensor_index
 
 
 def now_iso() -> str:
@@ -85,6 +87,10 @@ class RuntimeState:
     pending_measurements: dict[int, list[Measurement]] = field(
         default_factory=lambda: defaultdict(list)
     )
+    # 即時 wafer 已完成幾個 sensor 測試（ONEAPI 串接後應由收到的 sensor 量測事件
+    # 推算；CSV 匯入時所有數值一次到齊，所以用 /api/internal/thermal-progress
+    # 模擬進度）。沒設定時預設 3：sensor1~3 已實測、正要預測 sensor4。
+    thermal_completed: dict[tuple[str, str], int] = field(default_factory=dict)
     lock: RLock = field(default_factory=RLock, repr=False)
 
     def start_lot(self, lot: str) -> None:
@@ -111,6 +117,8 @@ class RuntimeState:
             result.results.extend(
                 measurement_to_result(measurement) for measurement in measurements
             )
+            if not result.failEvents:
+                result.failEvents = derive_fail_events(result.results)
             self.devices.append(result)
             self.lot = result.device.lot or self.lot
             self.wafer = result.device.wafer or self.wafer
@@ -156,6 +164,7 @@ class RuntimeState:
                     "y": entry.device.y,
                     "pf": entry.device.pf,
                     "softBin": entry.device.softBin,
+                    "site": entry.device.site,
                 }
                 for entry in matches
             ],
@@ -214,7 +223,7 @@ class RuntimeState:
         for site, site_entries in sorted(by_site.items()):
             points = []
             for entry in site_entries:
-                values = [result.value for result in entry.results if result.value is not None]
+                values = [result.value for result in entry.results if result.value is not None and sensor_index(result) is None]
                 if values:
                     points.append({"timestamp": entry.device.testTime, "value": mean(values)})
             baseline = [point["value"] for point in points[:10]]
@@ -238,7 +247,7 @@ class RuntimeState:
             failed = [entry.model_copy(deep=True) for entry in self.devices if entry.device.pf == "FAIL"]
         explanations = []
         for entry in failed[-limit:][::-1]:
-            result = next((result for result in entry.results if result.value is not None), None)
+            result = next((result for result in entry.results if result.value is not None and sensor_index(result) is None), None)
             if result is None:
                 continue
             value = result.value or 0.0
@@ -260,6 +269,59 @@ class RuntimeState:
                 "reasons": reasons,
             })
         return explanations
+
+    def wafer_fails(self, lot: str, wafer: str) -> dict[str, Any] | None:
+        """Only FAIL data: one row per (failing device, failing event)."""
+        with self.lock:
+            entries = [
+                entry.model_copy(deep=True)
+                for entry in self.devices
+                if entry.device.lot == lot and entry.device.wafer == wafer
+                and (entry.device.pf == "FAIL" or entry.failEvents)
+            ]
+            any_device = any(e.device.lot == lot and e.device.wafer == wafer for e in self.devices)
+        if not any_device:
+            return None
+        rows: list[dict[str, Any]] = []
+        for entry in entries:
+            base = {
+                "pid": entry.device.pid,
+                "site": entry.device.site,
+                "x": entry.device.x,
+                "y": entry.device.y,
+                "softBin": entry.device.softBin,
+                "softBinLabel": bin_label(entry.device.softBin),
+                "hardBin": entry.device.hardBin,
+                "hardBinLabel": hard_bin_label(entry.device.hardBin),
+            }
+            if entry.failEvents:
+                for fe in entry.failEvents:
+                    rows.append({**base, "event": fe.event, "meaning": fe.meaning, "value": fe.value,
+                                 "lowLimit": fe.lowLimit, "highLimit": fe.highLimit})
+            else:  # 只有 bin 判定失敗、沒有對應的超標測項事件
+                rows.append({**base, "event": None, "meaning": None, "value": None,
+                             "lowLimit": None, "highLimit": None})
+        counts: dict[str, dict[str, Any]] = {}
+        for row in rows:
+            if row["event"]:
+                item = counts.setdefault(row["event"], {"event": row["event"], "meaning": row["meaning"], "count": 0})
+                item["count"] += 1
+        return {"lot": lot, "wafer": wafer, "events": sorted(counts.values(), key=lambda e: e["event"]), "rows": rows}
+
+    def set_thermal_progress(self, completed: int) -> None:
+        with self.lock:
+            self.thermal_completed[(self.lot, self.wafer)] = completed
+
+    def thermal_wafer(self, lot: str, wafer: str) -> dict[str, Any] | None:
+        with self.lock:
+            entries = [
+                entry.model_copy(deep=True)
+                for entry in self.devices
+                if entry.device.lot == lot and entry.device.wafer == wafer
+            ]
+            is_live = lot == self.lot and wafer == self.wafer
+            completed = self.thermal_completed.get((lot, wafer), 3) if is_live else None
+        return build_wafer_thermal(entries, lot, wafer, is_live, completed, now_iso())
 
     def temperature_snapshot(self) -> dict[str, Any]:
         """A neutral transport contract until the ML team supplies predictions.
@@ -413,11 +475,13 @@ def measurement_to_result(measurement: Measurement) -> TestResultField:
 
 
 def measurement_values(entries: list[DeviceTestResult]) -> list[float]:
+    # sensor 測項（場景二的預測目標，數值範圍跟 IDDQ 完全不同）不能混進
+    # Site imbalance / 趨勢的平均值裡，否則 mean 會被拉到毫無意義的數字。
     return [
         result.value
         for entry in entries
         for result in entry.results
-        if result.value is not None
+        if result.value is not None and sensor_index(result) is None
     ]
 
 

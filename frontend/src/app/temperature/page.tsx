@@ -1,99 +1,102 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
-import { useTemperatureSnapshot } from "@/hooks/useTemperatureSnapshot";
-import { useDashboardSnapshot } from "@/hooks/useDashboardSnapshot";
-import { AppShell } from "@/components/common/AppShell";
-import { SectionHeader } from "@/components/common/SectionHeader";
-import { ThermalCard } from "@/components/temperature/ThermalCard";
-import { NotificationLog } from "@/components/temperature/NotificationLog";
-import { C, MONO } from "@/lib/theme";
+import { useEffect, useMemo, useState } from "react";
+import { useAppData } from "@/components/providers/AppDataProvider";
+import { useFilterableLots } from "@/hooks/useFilterableLots";
+import type { LotSummary, WaferListItem, WaferThermal } from "@/lib/api";
+import { fetchLotSummary, fetchWaferThermal } from "@/lib/api";
+import { LotWaferFilter } from "@/components/common/LotWaferFilter";
+import { WaferThermalView } from "@/components/temperature/WaferThermalView";
+import { C } from "@/lib/theme";
 
+// 選到「目前正在測試的 lot/wafer」→ 看最即時的資料（預測進行中，實測尚未回來
+// 的 sensor 只有預測）；選其他 wafer → 看預測 + 正式結果（實測已回來，可以驗證）。
 export default function TemperaturePage() {
-  const { snapshot, isLoading } = useTemperatureSnapshot();
-  const { snapshot: dashboard } = useDashboardSnapshot();
+  const { dashboard, liveThermal, lots: rawLots } = useAppData();
+  const lots = useFilterableLots(rawLots, dashboard);
+  const [selectedLot, setSelectedLot] = useState(dashboard?.currentLot ?? "");
+  const [selectedWafer, setSelectedWafer] = useState(dashboard?.currentWafer ?? "");
+  const [lotSummary, setLotSummary] = useState<LotSummary | undefined>(undefined);
+  const [otherThermal, setOtherThermal] = useState<WaferThermal | undefined>(undefined);
+  const [loadedKey, setLoadedKey] = useState("");
 
-  const [tick, setTick] = useState(0);
-  const prevGeneratedAt = useRef<string | null>(null);
+  const isLive = dashboard != null && selectedLot === dashboard.currentLot && selectedWafer === dashboard.currentWafer;
 
   useEffect(() => {
-    if (snapshot && snapshot.generatedAt !== prevGeneratedAt.current) {
-      prevGeneratedAt.current = snapshot.generatedAt;
-      setTick((t) => t + 1);
+    if (!selectedLot) return;
+    let cancelled = false;
+    fetchLotSummary(selectedLot).then((data) => {
+      if (cancelled) return;
+      setLotSummary(data);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [selectedLot]);
+
+  useEffect(() => {
+    if (!selectedLot || !selectedWafer || isLive) return;
+    let cancelled = false;
+    fetchWaferThermal(selectedLot, selectedWafer).then((data) => {
+      if (cancelled) return;
+      setOtherThermal(data);
+      setLoadedKey(`${selectedLot}/${selectedWafer}`);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [selectedLot, selectedWafer, isLive]);
+
+  const waferOptions: WaferListItem[] = useMemo(() => {
+    const list = [...(lotSummary?.wafers ?? [])];
+    if (dashboard && selectedLot === dashboard.currentLot && !list.some((w) => w.wafer === dashboard.currentWafer)) {
+      list.unshift({ wafer: dashboard.currentWafer, totalDevices: 0, passRate: 0, hasIssue: false });
     }
-  }, [snapshot]);
+    return list;
+  }, [lotSummary, dashboard, selectedLot]);
 
-  if (isLoading || !snapshot || !dashboard) {
-    return (
-      <div style={{ minHeight: "100vh", background: C.bg, display: "flex", alignItems: "center", justifyContent: "center" }}>
-        <span style={{ color: C.muted, fontSize: 14 }}>載入溫度預測資料中…</span>
-      </div>
-    );
-  }
+  const handleLotChange = (lot: string) => {
+    setSelectedLot(lot);
+    if (dashboard && lot === dashboard.currentLot) setSelectedWafer(dashboard.currentWafer);
+    else setSelectedWafer("");
+  };
 
-  const overCount = snapshot.predictions.filter((p) => p.predictedTempC >= p.thresholdC).length;
-  const maxTemp = snapshot.predictions.length ? Math.max(...snapshot.predictions.map((p) => p.predictedTempC)) : 0;
-  const avgTemp = snapshot.predictions.length ? snapshot.predictions.reduce((a, p) => a + p.predictedTempC, 0) / snapshot.predictions.length : 0;
-  const threshold = snapshot.predictions[0]?.thresholdC ?? 90;
+  // 換 lot 之後 wafer 還沒選：自動選第一片。
+  useEffect(() => {
+    if (!selectedWafer && waferOptions.length > 0) {
+      // eslint-disable-next-line react-hooks/set-state-in-effect -- 換 lot 後自動帶入第一片 wafer
+      setSelectedWafer(waferOptions[0].wafer);
+    }
+  }, [selectedWafer, waferOptions]);
+
+  if (!dashboard) return null;
+
+  const data = isLive ? liveThermal : loadedKey === `${selectedLot}/${selectedWafer}` ? otherThermal : undefined;
 
   return (
-    <AppShell
-      sites={dashboard.siteSummaries}
-      tick={tick}
-      lastUpdate={new Date(snapshot.generatedAt).toLocaleTimeString("en-GB")}
-      lot={dashboard.currentLot}
-      wafer={dashboard.currentWafer}
-      activeSection="s5"
-    >
-      <div style={{ marginBottom: 40 }}>
-        <SectionHeader id="s5" label="IC Thermal Prediction — All Sites" count={snapshot.predictions.length} />
-        <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(200px, 1fr))", gap: 12, marginBottom: 16 }}>
-          {snapshot.predictions.map((p) => (
-            <ThermalCard key={p.site} prediction={p} />
-          ))}
-        </div>
+    <div>
+      <LotWaferFilter
+        lots={lots}
+        selectedLot={selectedLot}
+        onSelectLot={handleLotChange}
+        wafers={waferOptions}
+        selectedWafer={selectedWafer}
+        onSelectWafer={setSelectedWafer}
+      />
 
-        <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(140px, 1fr))", gap: 12 }}>
-          {[
-            { label: "MAX TEMP", val: `${maxTemp.toFixed(1)}°C`, color: overCount > 0 ? C.red : C.text },
-            { label: "AVG TEMP", val: `${avgTemp.toFixed(1)}°C`, color: C.text },
-            { label: "THRESHOLD", val: `${threshold}°C`, color: C.muted },
-            { label: "ALERTS SENT", val: `${snapshot.notifications.length}`, color: overCount > 0 ? C.red : C.text },
-          ].map(({ label, val, color }) => (
-            <div key={label} style={{ background: C.card, border: `1px solid ${C.border}`, borderRadius: 12, padding: "14px 16px", boxShadow: C.shadow }}>
-              <div style={{ fontFamily: MONO, fontSize: 11, color: C.muted, letterSpacing: "0.06em", marginBottom: 8 }}>{label}</div>
-              <div style={{ fontFamily: MONO, fontSize: 20, fontWeight: 600, color }}>{val}</div>
-            </div>
-          ))}
-        </div>
+      <div style={{ fontSize: 12, marginBottom: 20, color: C.muted }}>
+        {isLive
+          ? "這是目前正在測試的 wafer：顯示最即時的資料——已實測的 sensor 有預測與實際值，正要測的下一個 sensor 只有預測（預測會超標會立刻通知到右側警告欄）。"
+          : "這不是目前正在測試的 wafer：顯示預測與正式測試結果，可以看預測準不準。"}
       </div>
 
-      <div style={{ marginBottom: 40 }}>
-        <SectionHeader id="notif" label="Machine Notification Log" count={snapshot.notifications.length} />
-        <NotificationLog notifications={snapshot.notifications} />
-      </div>
-
-      {/* Thermal Model Validation Console：待做清單項目（見 docs/feature-roadmap.md），
-          需要後端提供 6 個 sensor 的「預測值 vs 實際值」時間序列（GET
-          /api/temperature-telemetry 之類的端點），目前無論前端 mock 或後端
-          schemas 都還沒有這筆資料，所以這裡誠實顯示「尚未串接」，不虛構假圖表。 */}
-      <div style={{ marginBottom: 40 }}>
-        <SectionHeader id="console" label="Thermal Model Validation Console" />
-        <div
-          style={{
-            border: `1px dashed ${C.border}`,
-            borderRadius: 12,
-            padding: "32px 20px",
-            textAlign: "center",
-            color: C.muted,
-            fontSize: 13,
-            background: C.card,
-          }}
-        >
-          尚未串接：需要後端提供 6 個 sensor（sensor1#CP ~ sensor6#IO3）的「預測值 vs 實際值」時間序列端點，
-          目前資料契約中還沒有這筆資料。見 <code style={{ fontFamily: MONO }}>docs/feature-roadmap.md</code> 待排入清單。
+      {data ? (
+        <WaferThermalView key={`${data.lot}/${data.wafer}/${data.isLive}`} data={data} />
+      ) : (
+        <div style={{ border: `1px dashed ${C.border}`, borderRadius: 12, padding: "32px 20px", textAlign: "center", color: C.muted, fontSize: 13, background: C.card }}>
+          {selectedWafer ? `${selectedLot} / ${selectedWafer} 沒有 sensor 預測資料，或仍在載入中。` : "請選擇 wafer。"}
         </div>
-      </div>
-    </AppShell>
+      )}
+    </div>
   );
 }

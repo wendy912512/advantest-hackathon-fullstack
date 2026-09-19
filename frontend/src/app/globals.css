@@ -198,3 +198,94 @@
 .recharts-tooltip-wrapper {
   z-index: 100;
 }
+/* ─── Material Design 3：device tonal tile / assist chip ────────────────── */
+
+/* 80 個 device 排成 8 x 10，寬度填滿整個內容區（不留右側空白）；窄螢幕改 4 欄 */
+.md-matrix {
+  display: grid;
+  grid-template-columns: repeat(8, minmax(0, 1fr));
+  gap: 8px;
+}
+@media (max-width: 640px) {
+  .md-matrix {
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+  }
+}
+
+.md-tile {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 2px;
+  min-height: 76px;
+  padding: 10px 12px;
+  border: none;
+  border-radius: 12px; /* shape.medium */
+  cursor: pointer;
+  text-align: left;
+  font-family: "Roboto", system-ui, sans-serif;
+  overflow: hidden;
+  transition: box-shadow 0.15s cubic-bezier(0.2, 0, 0, 1);
+}
+/* state layer：hover 8% / focus 10% / pressed 10%（on-surface） */
+.md-tile::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background: #1c1b1f;
+  opacity: 0;
+  transition: opacity 0.15s cubic-bezier(0.2, 0, 0, 1);
+  pointer-events: none;
+}
+.md-tile:hover::before {
+  opacity: 0.08;
+}
+.md-tile:focus-visible::before,
+.md-tile:active::before {
+  opacity: 0.1;
+}
+.md-tile:hover {
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.3), 0 1px 3px 1px rgba(0, 0, 0, 0.15); /* elevation 1 */
+}
+.md-tile:focus-visible {
+  outline: 2px solid #1a73e8 !important;
+  outline-offset: 2px !important;
+}
+.md-tile-icon {
+  display: inline-flex;
+  width: 24px;
+  height: 24px;
+  padding: 2px;
+  margin-bottom: 4px;
+  border-radius: 50%;
+}
+.md-tile-label {
+  font-size: 12px; /* label.large */
+  font-weight: 500;
+  letter-spacing: 0.1px;
+  line-height: 16px;
+}
+.md-tile-value {
+  font-family: "Roboto Mono", monospace;
+  font-size: 11px; /* label.small */
+  line-height: 14px;
+}
+
+.md-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  height: 32px;
+  padding: 0 12px 0 8px;
+  border: 1px solid #cac4d0; /* outline-variant */
+  border-radius: 8px; /* shape.small */
+  font-size: 12px;
+  font-weight: 500;
+  color: #49454f;
+}
+.md-chip-icon {
+  display: inline-flex;
+  width: 18px;
+  height: 18px;
+}

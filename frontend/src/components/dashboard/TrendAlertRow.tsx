@@ -38,6 +38,9 @@ export function TrendAlertRow({ series }: { series: TrendSeries }) {
   return (
     <div style={{ border: `1px solid ${C.border}`, borderRadius: 12, marginBottom: 10, overflow: "hidden", boxShadow: C.shadow }}>
       <div style={{ padding: "12px 16px", display: "flex", alignItems: "center", flexWrap: "wrap", gap: 8, background: C.card, borderBottom: `1px solid ${C.border}` }}>
+        {series.alerts.length === 0 && (
+          <span style={{ fontSize: 12, fontWeight: 600, padding: "3px 10px", borderRadius: 100, background: C.greenBg, color: C.green }}>目前無告警</span>
+        )}
         {series.alerts.map((alert) => (
           <span
             key={alert.id}

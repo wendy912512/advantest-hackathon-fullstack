@@ -1,123 +1,220 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
-import { useDashboardSnapshot } from "@/hooks/useDashboardSnapshot";
+import { useEffect, useState } from "react";
+import { useAppData } from "@/components/providers/AppDataProvider";
+import { useFilterableLots } from "@/hooks/useFilterableLots";
 import { useTrendSeries } from "@/hooks/useTrendSeries";
-import { useLotList } from "@/hooks/useLotList";
-import { useFailureExplanations } from "@/hooks/useFailureExplanations";
-import type { SiteSummary } from "@/lib/api";
-import { AppShell } from "@/components/common/AppShell";
+import type { LotSummary, WaferFails, WaferListItem, WaferMapData } from "@/lib/api";
+import { fetchLotSummary, fetchWaferFails, fetchWaferMapData } from "@/lib/api";
+import { C, MONO } from "@/lib/theme";
+import { LotWaferFilter } from "@/components/common/LotWaferFilter";
 import { SectionHeader } from "@/components/common/SectionHeader";
-import { SiteCard } from "@/components/dashboard/SiteCard";
-import { SiteDrawer } from "@/components/dashboard/SiteDrawer";
+import { WaferMap } from "@/components/common/WaferMap";
+import { SiteCard, type SiteCardData } from "@/components/dashboard/SiteCard";
 import { TrendAlertRow } from "@/components/dashboard/TrendAlertRow";
-import { LotBrowser } from "@/components/dashboard/LotBrowser";
-import { FailureExplainer } from "@/components/dashboard/FailureExplainer";
-import { NotificationPanel } from "@/components/dashboard/NotificationPanel";
-import { C } from "@/lib/theme";
+import { FailEventsTable } from "@/components/dashboard/FailEventsTable";
 
-export default function DashboardPage() {
-  const { snapshot, isLoading } = useDashboardSnapshot();
-  const { series } = useTrendSeries();
-  const { lots } = useLotList();
-  const { explanations } = useFailureExplanations();
+type Tab = "trend" | "table";
 
-  const [tick, setTick] = useState(0);
-  const [drawerSite, setDrawerSite] = useState<SiteSummary | null>(null);
-  const [activeSection, setActiveSection] = useState("s1");
-  const prevGeneratedAt = useRef<string | null>(null);
+export default function SitesPage() {
+  const { dashboard, lots: rawLots } = useAppData();
+  const { series: trendSeries } = useTrendSeries();
+  const lots = useFilterableLots(rawLots, dashboard);
 
-  // LIVE 徽章上的計數器：每次拿到新的 snapshot（generatedAt 改變）就 +1，
-  // 用來讓使用者感覺到畫面確實在更新，而不是綁在某個固定 interval 上。
+  const [selectedLot, setSelectedLot] = useState(dashboard?.currentLot ?? "");
+  const [selectedWafer, setSelectedWafer] = useState(dashboard?.currentWafer ?? "");
+  const [lotSummary, setLotSummary] = useState<LotSummary | undefined>(undefined);
+  const [waferMap, setWaferMap] = useState<WaferMapData | undefined>(undefined);
+  const [selectedSite, setSelectedSite] = useState<number | null>(null);
+  const [tab, setTab] = useState<Tab>("trend");
+  const [waferFails, setWaferFails] = useState<WaferFails | undefined>(undefined);
+
+  // 只要 dashboard 還沒載入完成，第一次 render 時 selectedLot/selectedWafer
+  // 會是空字串；資料到位後補上預設值（目前即時監控的 lot/wafer）。
   useEffect(() => {
-    if (snapshot && snapshot.generatedAt !== prevGeneratedAt.current) {
-      prevGeneratedAt.current = snapshot.generatedAt;
-      setTick((t) => t + 1);
+    if (dashboard && !selectedLot) {
+      // eslint-disable-next-line react-hooks/set-state-in-effect -- 資料到位後補上初始篩選值，屬於一次性初始化
+      setSelectedLot(dashboard.currentLot);
+      setSelectedWafer(dashboard.currentWafer);
     }
-  }, [snapshot]);
+  }, [dashboard, selectedLot]);
 
+  const isLiveLot = dashboard != null && selectedLot === dashboard.currentLot;
+
+  // 選的 lot 不是目前即時監控的那批時，才需要額外去查這個 lot 底下有哪些
+  // wafer——即時監控的那批本來就只有「目前這一片」。
   useEffect(() => {
-    const observer = new IntersectionObserver(
-      (entries) => {
-        entries.forEach((e) => {
-          if (e.isIntersecting) setActiveSection(e.target.id);
-        });
-      },
-      { threshold: 0.3 },
-    );
-    ["s1", "s2", "s3", "s4"].forEach((id) => {
-      const el = document.getElementById(id);
-      if (el) observer.observe(el);
+    if (!selectedLot || isLiveLot) {
+      // eslint-disable-next-line react-hooks/set-state-in-effect -- 切回即時 lot 時清掉舊的歷史批次資料
+      setLotSummary(undefined);
+      return;
+    }
+    let cancelled = false;
+    fetchLotSummary(selectedLot).then((data) => {
+      if (!cancelled) {
+        setLotSummary(data);
+        setSelectedWafer(data?.wafers[0]?.wafer ?? "");
+      }
     });
-    return () => observer.disconnect();
-  }, [isLoading]);
+    return () => {
+      cancelled = true;
+    };
+  }, [selectedLot, isLiveLot]);
 
-  if (isLoading || !snapshot) {
-    return (
-      <div style={{ minHeight: "100vh", background: C.bg, display: "flex", alignItems: "center", justifyContent: "center" }}>
-        <span style={{ color: C.muted, fontSize: 14 }}>載入即時測試資料中…</span>
-      </div>
-    );
-  }
+  // 不論是即時監控還是歷史批次，底下的圓形 wafer map 都需要這份資料；歷史
+  // 批次還需要靠它算出各 site 的 pass rate（沒有存原始量測值，只能算
+  // pass/fail）。
+  useEffect(() => {
+    if (!selectedLot || !selectedWafer) return;
+    let cancelled = false;
+    fetchWaferMapData(selectedLot, selectedWafer).then((data) => {
+      if (!cancelled) setWaferMap(data);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [selectedLot, selectedWafer]);
 
-  const trendSeriesWithAlerts = (series ?? []).filter((s) => s.alerts.length > 0);
+  // 換了 lot/wafer 之後，原本選的 site 已經沒有意義，要求使用者重新選一次。
+  useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- 篩選條件變了，下面的 site 選取狀態本來就要跟著重置
+    setSelectedSite(null);
+  }, [selectedLot, selectedWafer]);
+
+  const isLiveWafer = isLiveLot && dashboard != null && selectedWafer === dashboard.currentWafer;
+
+  // Table 分頁只呈現 Fail 異常資料：整片 wafer 抓一次，再依選的 Site 過濾。
+  useEffect(() => {
+    if (!selectedLot || !selectedWafer) return;
+    let cancelled = false;
+    fetchWaferFails(selectedLot, selectedWafer).then((data) => {
+      if (!cancelled) setWaferFails(data);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [selectedLot, selectedWafer]);
+
+  if (!dashboard) return null;
+
+  const siteCards: SiteCardData[] = isLiveWafer
+    ? dashboard.siteSummaries
+    : buildHistoricalSiteCards(waferMap);
+
+  const waferOptions: WaferListItem[] = isLiveLot
+    ? [{ wafer: dashboard.currentWafer, totalDevices: dashboard.totalDevicesTested, passRate: dashboard.overallPassRate, hasIssue: false }]
+    : (lotSummary?.wafers ?? []);
+
+  const selectedSeries = trendSeries?.find((s) => s.site === selectedSite);
+
+  const failRows = (waferFails?.rows ?? []).filter((r) => r.site === selectedSite);
+
+  const waferPassRatePct = isLiveWafer
+    ? dashboard.overallPassRate * 100
+    : (lotSummary?.wafers.find((w) => w.wafer === selectedWafer)?.passRate ?? 0) * 100;
 
   return (
-    <AppShell
-      sites={snapshot.siteSummaries}
-      tick={tick}
-      lastUpdate={new Date(snapshot.generatedAt).toLocaleTimeString("en-GB")}
-      lot={snapshot.currentLot}
-      wafer={snapshot.currentWafer}
-      activeSection={activeSection}
-    >
-      <div style={{ display: "flex", gap: 20, alignItems: "flex-start" }}>
-        <div style={{ flex: 1, minWidth: 0 }}>
-          <div id="s1" style={{ marginBottom: 40 }}>
-            <SectionHeader id="s1" label="Site Status — IDDQ_A1" />
-            <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(200px, 1fr))", gap: 12 }}>
-              {snapshot.siteSummaries.map((s) => (
-                <SiteCard key={s.site} site={s} onClick={() => setDrawerSite(s)} />
-              ))}
-            </div>
-          </div>
+    <div>
+      <LotWaferFilter
+        lots={lots}
+        selectedLot={selectedLot}
+        onSelectLot={setSelectedLot}
+        wafers={waferOptions}
+        selectedWafer={selectedWafer}
+        onSelectWafer={setSelectedWafer}
+      />
 
-          <div id="s2" style={{ marginBottom: 40 }}>
-            <SectionHeader id="s2" label="Trend Alerts" count={trendSeriesWithAlerts.length} />
-            <div className="xl:hidden" style={{ marginBottom: 20 }}>
-              <NotificationPanel alerts={snapshot.trendAlerts} lot={snapshot.currentLot} wafer={snapshot.currentWafer} tick={tick} />
-            </div>
-            {trendSeriesWithAlerts.length === 0 ? (
-              <div style={{ textAlign: "center", padding: "32px 16px", color: C.muted, fontSize: 14, border: `1px solid ${C.border}`, borderRadius: 12, background: C.card }}>
-                目前所有 site 都在管制界線內
-              </div>
-            ) : (
-              trendSeriesWithAlerts.map((s) => <TrendAlertRow key={s.site} series={s} />)
-            )}
-          </div>
+      <div style={{ marginBottom: 32 }}>
+        <SectionHeader id="site-status" label={`Site Status — ${selectedLot} / ${selectedWafer}`} />
+        <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(200px, 1fr))", gap: 12 }}>
+          {siteCards.map((s) => (
+            <SiteCard key={s.site} site={s} selected={selectedSite === s.site} onClick={() => setSelectedSite(selectedSite === s.site ? null : s.site)} />
+          ))}
+        </div>
+      </div>
 
-          <div id="s3" style={{ marginBottom: 40 }}>
-            <SectionHeader id="s3" label="Lot / Wafer Browser" count={lots?.length} />
-            {lots && lots.length > 0 ? <LotBrowser lots={lots} /> : <div style={{ color: C.muted, fontSize: 14 }}>載入批次資料中…</div>}
-          </div>
-
-          <div id="s4" style={{ marginBottom: 40 }}>
-            <SectionHeader id="s4" label="Failure Explainer" count={explanations?.length} />
-            <FailureExplainer failures={explanations ?? []} />
-          </div>
+      <div style={{ marginBottom: 32 }}>
+        <div style={{ display: "flex", gap: 4, padding: 4, background: C.surfaceVariant, borderRadius: 10, width: "fit-content", marginBottom: 16 }}>
+          {(["trend", "table"] as const).map((t) => (
+            <button
+              key={t}
+              onClick={() => setTab(t)}
+              style={{
+                padding: "8px 20px",
+                borderRadius: 7,
+                border: "none",
+                cursor: "pointer",
+                fontSize: 13,
+                fontWeight: tab === t ? 600 : 400,
+                background: tab === t ? C.card : "transparent",
+                color: tab === t ? C.text : C.muted,
+                boxShadow: tab === t ? C.shadow : "none",
+              }}
+            >
+              {t === "trend" ? "Trend Alert" : "Table"}
+            </button>
+          ))}
         </div>
 
-        <div className="hidden xl:block" style={{ width: 324, flexShrink: 0 }} />
+        {selectedSite == null ? (
+          <div style={{ textAlign: "center", padding: "32px 16px", color: C.muted, fontSize: 14, border: `1px solid ${C.border}`, borderRadius: 12, background: C.card }}>
+            請先在上方選擇一個 Site
+          </div>
+        ) : tab === "trend" ? (
+          isLiveWafer ? (
+            selectedSeries ? (
+              <TrendAlertRow series={selectedSeries} />
+            ) : (
+              <div style={{ color: C.muted, fontSize: 14 }}>載入趨勢資料中…</div>
+            )
+          ) : (
+            <div style={{ textAlign: "center", padding: "32px 16px", color: C.muted, fontSize: 14, border: `1px dashed ${C.border}`, borderRadius: 12, background: C.card }}>
+              歷史批次目前沒有趨勢分析，這個功能只在即時監控時提供。
+            </div>
+          )
+        ) : (
+          <FailEventsTable key={`${selectedLot}/${selectedWafer}/${selectedSite}`} rows={failRows} title={`Fail 異常資料 — Site ${selectedSite}`} />
+        )}
       </div>
 
-      <div
-        className="hidden xl:flex flex-col"
-        style={{ position: "fixed", top: 56, right: 0, bottom: 0, width: 324, background: C.bg, borderLeft: `1px solid ${C.border}`, overflowY: "auto", zIndex: 20, padding: "16px 14px" }}
-      >
-        <NotificationPanel alerts={snapshot.trendAlerts} lot={snapshot.currentLot} wafer={snapshot.currentWafer} tick={tick} />
-      </div>
-
-      <SiteDrawer site={drawerSite} allSites={snapshot.siteSummaries} onClose={() => setDrawerSite(null)} />
-    </AppShell>
+      {waferMap && (
+        <div style={{ marginBottom: 32 }}>
+          <SectionHeader id="wafer-map" label="Wafer Map" />
+          <div style={{ border: `1px solid ${C.border}`, borderRadius: 12, padding: 16, background: C.card, boxShadow: C.shadow }}>
+            <div style={{ display: "flex", flexWrap: "wrap", gap: 20, marginBottom: 16 }}>
+              <div>
+                <div style={{ fontFamily: MONO, fontSize: 11, color: C.muted, letterSpacing: "0.06em", marginBottom: 4 }}>LOT ID</div>
+                <div style={{ fontFamily: MONO, fontSize: 14, fontWeight: 600, color: C.text }}>{selectedLot}</div>
+              </div>
+              <div>
+                <div style={{ fontFamily: MONO, fontSize: 11, color: C.muted, letterSpacing: "0.06em", marginBottom: 4 }}>WAFER</div>
+                <div style={{ fontFamily: MONO, fontSize: 14, fontWeight: 600, color: C.text }}>{selectedWafer}</div>
+              </div>
+              <div>
+                <div style={{ fontFamily: MONO, fontSize: 11, color: C.muted, letterSpacing: "0.06em", marginBottom: 4 }}>PASS RATE</div>
+                <div style={{ fontFamily: MONO, fontSize: 14, fontWeight: 600, color: waferPassRatePct >= 80 ? C.green : C.red }}>{waferPassRatePct.toFixed(1)}%</div>
+              </div>
+            </div>
+            <div style={{ display: "flex", justifyContent: "center" }}>
+              <WaferMap data={waferMap} />
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
   );
+}
+
+function buildHistoricalSiteCards(waferMap: WaferMapData | undefined): SiteCardData[] {
+  if (!waferMap) return [];
+  const bySite = new Map<number, { pass: number; total: number }>();
+  for (const p of waferMap.points) {
+    const entry = bySite.get(p.site) ?? { pass: 0, total: 0 };
+    entry.total += 1;
+    if (p.pf === "PASS") entry.pass += 1;
+    bySite.set(p.site, entry);
+  }
+  return Array.from(bySite.entries())
+    .sort((a, b) => a[0] - b[0])
+    .map(([site, { pass, total }]) => ({ site, passRate: total ? pass / total : 0, count: total }));
 }

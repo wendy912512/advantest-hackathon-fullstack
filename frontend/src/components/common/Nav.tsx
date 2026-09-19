@@ -4,18 +4,17 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { C } from "@/lib/theme";
 
+// 三個都是真正的路由（不再是同一頁裡的錨點捲動），active 狀態直接比對
+// pathname 就好，不需要像之前那樣用 IntersectionObserver 追蹤目前捲到哪個
+// section。
 export const NAV_ITEMS = [
-  { id: "s1", label: "Sites", icon: "◈", anchor: "#s1", page: false },
-  { id: "s5", label: "Thermal", icon: "◉", anchor: "/temperature", page: true },
+  { href: "/", label: "Sites", icon: "◈" },
+  { href: "/wafers", label: "Wafers", icon: "▦" },
+  { href: "/temperature", label: "Thermal", icon: "◉" },
 ] as const;
 
-function isActive(item: (typeof NAV_ITEMS)[number], onThermal: boolean, activeSection: string) {
-  return item.page ? onThermal : !onThermal && activeSection === item.id;
-}
-
-export function Sidebar({ activeSection }: { activeSection: string }) {
+export function Sidebar() {
   const pathname = usePathname();
-  const onThermal = pathname === "/temperature";
 
   return (
     <nav
@@ -32,45 +31,37 @@ export function Sidebar({ activeSection }: { activeSection: string }) {
       }}
     >
       {NAV_ITEMS.map((item) => {
-        const active = isActive(item, onThermal, activeSection);
-        const railItem = (
-          <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 4, padding: "10px 4px", width: "100%", cursor: "pointer" }}>
-            <div
-              style={{
-                width: 56,
-                height: 32,
-                borderRadius: 16,
-                background: active ? C.blueBg : "transparent",
-                display: "flex",
-                alignItems: "center",
-                justifyContent: "center",
-                transition: "background 0.2s",
-              }}
-            >
-              <span style={{ fontSize: 16, color: active ? C.blue : C.muted }}>{item.icon}</span>
+        const active = pathname === item.href;
+        return (
+          <Link key={item.href} href={item.href} style={{ textDecoration: "none", width: "100%" }}>
+            <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 4, padding: "10px 4px", width: "100%", cursor: "pointer" }}>
+              <div
+                style={{
+                  width: 56,
+                  height: 32,
+                  borderRadius: 16,
+                  background: active ? C.blueBg : "transparent",
+                  display: "flex",
+                  alignItems: "center",
+                  justifyContent: "center",
+                  transition: "background 0.2s",
+                }}
+              >
+                <span style={{ fontSize: 16, color: active ? C.blue : C.muted }}>{item.icon}</span>
+              </div>
+              <span style={{ fontSize: 11, fontWeight: active ? 600 : 400, color: active ? C.text : C.muted, textAlign: "center", userSelect: "none" }}>
+                {item.label}
+              </span>
             </div>
-            <span style={{ fontSize: 11, fontWeight: active ? 600 : 400, color: active ? C.text : C.muted, textAlign: "center", userSelect: "none" }}>
-              {item.label}
-            </span>
-          </div>
-        );
-        return item.page ? (
-          <Link key={item.id} href={item.anchor} style={{ textDecoration: "none", width: "100%" }}>
-            {railItem}
           </Link>
-        ) : (
-          <a key={item.id} href={onThermal ? `/${item.anchor}` : item.anchor} style={{ textDecoration: "none", width: "100%" }}>
-            {railItem}
-          </a>
         );
       })}
     </nav>
   );
 }
 
-export function MobileBottomNav({ activeSection }: { activeSection: string }) {
+export function MobileBottomNav() {
   const pathname = usePathname();
-  const onThermal = pathname === "/temperature";
 
   return (
     <nav
@@ -78,23 +69,16 @@ export function MobileBottomNav({ activeSection }: { activeSection: string }) {
       style={{ background: C.card, borderTop: `1px solid ${C.border}`, boxShadow: "0 -2px 8px rgba(0,0,0,0.08)", height: 64 }}
     >
       {NAV_ITEMS.map((item) => {
-        const active = isActive(item, onThermal, activeSection);
-        const content = (
-          <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 3, padding: "8px 0" }}>
-            <div style={{ width: 56, height: 32, borderRadius: 16, background: active ? C.blueBg : "transparent", display: "flex", alignItems: "center", justifyContent: "center" }}>
-              <span style={{ fontSize: 17, color: active ? C.blue : C.muted }}>{item.icon}</span>
+        const active = pathname === item.href;
+        return (
+          <Link key={item.href} href={item.href} className="flex-1 flex items-center justify-center" style={{ textDecoration: "none" }}>
+            <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 3, padding: "8px 0" }}>
+              <div style={{ width: 56, height: 32, borderRadius: 16, background: active ? C.blueBg : "transparent", display: "flex", alignItems: "center", justifyContent: "center" }}>
+                <span style={{ fontSize: 17, color: active ? C.blue : C.muted }}>{item.icon}</span>
+              </div>
+              <span style={{ fontSize: 11, fontWeight: active ? 600 : 400, color: active ? C.text : C.muted }}>{item.label}</span>
             </div>
-            <span style={{ fontSize: 11, fontWeight: active ? 600 : 400, color: active ? C.text : C.muted }}>{item.label}</span>
-          </div>
-        );
-        return item.page ? (
-          <Link key={item.id} href={item.anchor} className="flex-1 flex items-center justify-center" style={{ textDecoration: "none" }}>
-            {content}
           </Link>
-        ) : (
-          <a key={item.id} href={onThermal ? `/${item.anchor}` : item.anchor} className="flex-1 flex items-center justify-center" style={{ textDecoration: "none" }}>
-            {content}
-          </a>
         );
       })}
     </nav>
