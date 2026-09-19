@@ -42,7 +42,7 @@ frontend/
 接著執行：
 
 ```cmd
-cd /d C:\advantest-hackathon-fullstack\frontend
+cd frontend
 npm install
 npm run dev
 ```
@@ -54,7 +54,7 @@ npm run dev
 另開終端機執行：
 
 ```cmd
-cd /d C:\advantest-hackathon-fullstack\backend
+cd backend
 py -m venv .venv
 .venv\Scripts\activate.bat
 py -m pip install -r requirements.txt
