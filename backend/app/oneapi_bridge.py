@@ -10,19 +10,20 @@ from .schemas import DeviceInfo, DeviceTestResult, Measurement
 from .state import runtime_state
 
 
-def on_lot_start(data) -> None:
-    runtime_state.start_lot(str(data.get_LotId()))
+def on_lot_start(data, state=runtime_state) -> None:
+    state.start_lot(str(data.get_LotId()))
 
 
-def on_wafer_start(data) -> None:
-    runtime_state.start_wafer(str(data.get_WaferId()), int(data.get_WaferSize() / 2))
+def on_wafer_start(data, state=runtime_state) -> None:
+    state.start_wafer(str(data.get_WaferId()), int(data.get_WaferSize() / 2))
 
 
-def on_multi_parametric(data, to_site) -> None:
+def on_multi_parametric(data, to_site, set_message=None, state=runtime_state) -> None:
+    """Forward measured values and optionally notify the tester on OOS."""
     for index in range(data.get_ResultCount()):
         site = to_site(data.query_HeadSite(index))
         for value in data.query_Results(index):
-            runtime_state.record_measurement(Measurement(
+            state.record_measurement(Measurement(
                 site=site,
                 testNumber=int(data.query_TestNumber(index)),
                 testSuiteName=str(data.query_TestSuite(index)),
@@ -32,17 +33,35 @@ def on_multi_parametric(data, to_site) -> None:
                 lowLimit=float(data.query_LowLimit(index)),
                 highLimit=float(data.query_HighLimit(index)),
                 passed=True,
-            ))
+            ), set_message=set_message)
 
 
-def on_test_end(data, to_site) -> None:
+def on_parametric(data, to_site, set_message=None, state=runtime_state) -> None:
+    """Forward scalar parametric results using the SDK's singular getter."""
+    for index in range(data.get_ResultCount()):
+        site = to_site(data.query_HeadSite(index))
+        value = data.query_Result(index)
+        state.record_measurement(Measurement(
+            site=site,
+            testNumber=int(data.query_TestNumber(index)),
+            testSuiteName=str(data.query_TestSuite(index)),
+            kind="PARAMETRIC",
+            value=float(value),
+            unit=str(data.query_Unit(index)),
+            lowLimit=float(data.query_LowLimit(index)),
+            highLimit=float(data.query_HighLimit(index)),
+            passed=True,
+        ), set_message=set_message)
+
+
+def on_test_end(data, to_site, state=runtime_state) -> None:
     for index in range(data.get_ResultCount()):
         soft_bin = int(data.query_SBinResult(index))
-        runtime_state.record_test_end(DeviceTestResult(
+        state.record_test_end(DeviceTestResult(
             device=DeviceInfo(
                 pid=str(data.query_PartId(index)),
-                lot=runtime_state.lot,
-                wafer=runtime_state.wafer,
+                lot=state.lot,
+                wafer=state.wafer,
                 site=to_site(data.query_HeadSite(index)),
                 x=int(data.query_XCoord(index)),
                 y=int(data.query_YCoord(index)),
