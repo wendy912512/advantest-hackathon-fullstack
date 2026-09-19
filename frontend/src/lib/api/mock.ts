@@ -176,11 +176,10 @@ function generateDevice(site: number, lot: string, wafer: string, rand: () => nu
   };
 }
 
-// 這是「目前正在測試中」的即時監控資料（Dashboard/Site/趨勢/解釋器用），跟
-// LOT_DEFINITIONS 裡「已完成、可瀏覽歷史」的批次是分開的兩組資料，故意用不同的
-// lot id（LOT-2026-0093）避免混淆——不是同一批貨。
-export const LIVE_LOT = "LOT-2026-0093";
-export const LIVE_WAFER = "W07";
+// 無法連到後端時的 fallback 也要沿用訓練資料的識別方式：25 個 CSV 是同一個
+// Lot（A12345），差異是 W01～W25，不再產生虛構的 LOT-2026-* 批次。
+export const LIVE_LOT = "A12345";
+export const LIVE_WAFER = "W01";
 
 export function generateMockResults(count = 240): DeviceTestResult[] {
   const rand = seededRandom(42);
@@ -484,52 +483,16 @@ interface LotDefinition {
   wafers: WaferDefinition[];
 }
 
-// demo 用固定資料集：4 個 lot，每個 lot 5 片 wafer。真實 site/wafer 數量、每片
-// device 數需與工程師確認，見 Notion 對齊表。
+// fallback 對齊 training/Data/A12345_W01~W25_RawResult.csv：一個 Lot、25 片
+// wafer。pattern 只是在後端暫時不可用時提供畫面預覽，後端可用時以 CSV 為準。
 const LOT_DEFINITIONS: LotDefinition[] = [
   {
-    lot: "LOT-2026-0091",
+    lot: "A12345",
     startedAt: "2026-09-19T01:00:00.000Z",
-    wafers: [
-      { wafer: "W01", pattern: "healthy" },
-      { wafer: "W02", pattern: "healthy" },
-      { wafer: "W03", pattern: "edge-effect" },
-      { wafer: "W04", pattern: "healthy" },
-      { wafer: "W05", pattern: "elevated-fail" },
-    ],
-  },
-  {
-    lot: "LOT-2026-0089",
-    startedAt: "2026-09-18T09:30:00.000Z",
-    wafers: [
-      { wafer: "W01", pattern: "healthy" },
-      { wafer: "W02", pattern: "healthy" },
-      { wafer: "W03", pattern: "healthy" },
-      { wafer: "W04", pattern: "healthy" },
-      { wafer: "W05", pattern: "healthy" },
-    ],
-  },
-  {
-    lot: "LOT-2026-0087",
-    startedAt: "2026-09-17T14:15:00.000Z",
-    wafers: [
-      { wafer: "W01", pattern: "healthy" },
-      { wafer: "W02", pattern: "edge-effect" },
-      { wafer: "W03", pattern: "healthy" },
-      { wafer: "W04", pattern: "healthy" },
-      { wafer: "W05", pattern: "healthy" },
-    ],
-  },
-  {
-    lot: "LOT-2026-0085",
-    startedAt: "2026-09-16T18:45:00.000Z",
-    wafers: [
-      { wafer: "W01", pattern: "healthy" },
-      { wafer: "W02", pattern: "healthy" },
-      { wafer: "W03", pattern: "healthy" },
-      { wafer: "W04", pattern: "healthy" },
-      { wafer: "W05", pattern: "healthy" },
-    ],
+    wafers: Array.from({ length: 25 }, (_, index) => ({
+      wafer: `W${String(index + 1).padStart(2, "0")}`,
+      pattern: index === 2 ? "edge-effect" : index === 8 ? "elevated-fail" : "healthy",
+    })),
   },
 ];
 
@@ -645,13 +608,12 @@ export function generateLotList(): LotListItem[] {
 }
 
 export function generateLotSummary(lot: string): LotSummary | undefined {
-  // 跟 generateWaferMapData() 同樣的問題：即時監控的 lot（LIVE_LOT）不在
-  // LOT_DEFINITIONS 裡，要另外處理，否則 Wafer Browser 頁選到目前即時的
-  // lot 時會一直卡在「載入批次資料中」（fetchLotSummary 拿不到任何資料，
-  // 也沒有 mock 備援）。
+  // 即時 dashboard 仍使用 W01 的專用資料；Lot Summary 則要列出同一個
+  // A12345 Lot 底下的完整 W01~W25 清單。
   if (lot === LIVE_LOT) {
     const results = generateMockResults();
     const devices = results.map((r) => r.device);
+    const wafers = LOT_DEFINITIONS[0].wafers.map((w) => waferListItem(lot, w.wafer));
     const siteSummaries = summarizeBySite(results);
     const passCount = devices.filter((d) => d.pf === "PASS").length;
     const passRate = passCount / devices.length;
@@ -659,14 +621,14 @@ export function generateLotSummary(lot: string): LotSummary | undefined {
     const hardBinBreakdown = binBreakdown(devices, (d) => d.hardBin);
     return {
       lot,
-      waferCount: 1,
-      totalDevices: devices.length,
+      waferCount: wafers.length,
+      totalDevices: wafers.reduce((sum, wafer) => sum + wafer.totalDevices, 0),
       passRate,
       siteSummaries,
       softBinBreakdown,
       hardBinBreakdown,
       suspectIssues: siteSummaries.filter((s) => s.isAnomalous).map((s) => s.anomalyReason ?? `Site ${s.site} 異常`),
-      wafers: [{ wafer: LIVE_WAFER, totalDevices: devices.length, passRate, hasIssue: passRate < SITE_PASS_RATE_THRESHOLD }],
+      wafers,
     };
   }
 
@@ -724,9 +686,8 @@ export function generateLotSummary(lot: string): LotSummary | undefined {
 }
 
 export function generateWaferMapData(lot: string, wafer: string): WaferMapData | undefined {
-  // 「目前正在測試中」的即時資料集（LIVE_LOT/LIVE_WAFER）不在 LOT_DEFINITIONS
-  // 裡（那是給歷史批次瀏覽用的固定資料集），所以要另外處理，否則 Sites 頁
-  // 預設顯示的就是即時 lot/wafer，會拿不到 wafer map。
+  // W01 的即時資料使用 dashboard mock；其餘 W02~W25 使用同一個 A12345
+  // fallback Lot 的 wafer pattern。
   if (lot === LIVE_LOT && wafer === LIVE_WAFER) {
     const results = generateMockResults();
     return {

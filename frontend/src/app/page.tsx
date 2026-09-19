@@ -39,6 +39,17 @@ export default function SitesPage() {
     }
   }, [dashboard, selectedLot]);
 
+  // 後端啟動後，lots 可能比第一次 dashboard fallback 晚一步回來；如果目前
+  // 選中的舊 mock Lot 已不在真實清單中，切換到後端的目前 Lot，避免畫面卡在
+  // LOT-2026-0093 / W07。使用者選了清單中的 Lot 後不會被這段覆蓋。
+  useEffect(() => {
+    if (!rawLots?.length || !selectedLot || rawLots.some((lot) => lot.lot === selectedLot)) return;
+    const nextLot = rawLots.find((lot) => lot.lot === dashboard?.currentLot) ?? rawLots[0];
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- 後端資料取代初始 fallback 篩選值
+    setSelectedLot(nextLot.lot);
+    setSelectedWafer(nextLot.lot === dashboard?.currentLot ? dashboard.currentWafer : "");
+  }, [rawLots, dashboard, selectedLot]);
+
   const isLiveLot = dashboard != null && selectedLot === dashboard.currentLot;
 
   // 取得選定 Lot 底下的完整 wafer 清單。CSV mock 會一次載入 W01~W25，
