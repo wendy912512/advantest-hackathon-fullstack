@@ -25,7 +25,7 @@ backend/
 └── data/                    # 本機 CSV；已忽略，不會進 Git
 
 frontend/
-├── .env.local               # 本機前端 API 位址，已忽略
+├── .env                     # 本機前端 API 位址，已忽略
 ├── package.json
 └── src/
 ```
@@ -34,7 +34,7 @@ frontend/
 
 ### 前端
 
-在 `frontend\.env.local` 建立：
+在 `frontend\.env` 建立：
 
 ```text
 NEXT_PUBLIC_API_BASE_URL=http://127.0.0.1:8080/api
@@ -43,7 +43,7 @@ NEXT_PUBLIC_API_BASE_URL=http://127.0.0.1:8080/api
 接著執行：
 
 ```cmd
-cd /d C:\advantest-hackathon-fullstack\frontend
+cd frontend
 npm install
 npm run dev
 ```
@@ -55,7 +55,7 @@ npm run dev
 另開終端機執行：
 
 ```cmd
-cd /d C:\advantest-hackathon-fullstack\backend
+cd backend
 py -m venv .venv
 .venv\Scripts\activate.bat
 py -m pip install -r requirements.txt
@@ -66,13 +66,7 @@ py -m uvicorn app.main:app --reload --port 8080
 
 ### 題目 CSV 資料
 
-本機展示可將題目 CSV 複製到 `backend\data\`。此資料夾已加入 Git 忽略規則，CSV 不會被提交或推送；原始檔仍保留在 `C:\Users\feng2\Downloads\training\Data`。
-
-```cmd
-cd /d C:\advantest-hackathon-fullstack
-mkdir backend\data
-copy "C:\Users\feng2\Downloads\training\Data\*.csv" backend\data\
-```
+本機展示可將題目 CSV 放到 `backend\data\`。此資料夾已加入 Git 忽略規則，CSV 不會被提交或推送。
 
 後端啟動後，匯入一份資料到即時儀表板：
 
