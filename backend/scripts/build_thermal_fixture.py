@@ -1,11 +1,15 @@
-"""Build frontend/src/lib/api/thermalFixture.json and failFixture.json from a real RawResult CSV.
+"""Build frontend fixtures from RawResult CSV data.
 
 The frontend mock fallback (used when the backend has no data) replays this
 file, so the demo shows REAL sensor values and REAL leave-one-out predictions
 instead of invented numbers.
 
-    cd backend && .venv/bin/python scripts/build_thermal_fixture.py \
-        ../frontend/reference/A12345_W01_RawResult.csv
+    cd backend && python scripts/build_thermal_fixture.py \
+        ../training/Data/A12345_W01_RawResult.csv
+
+For a directory, fail fixtures are generated for every matching wafer CSV:
+
+    python scripts/build_thermal_fixture.py ../training/Data
 """
 import json
 import sys
@@ -17,8 +21,20 @@ from app.csv_import import import_csv  # noqa: E402
 from app.state import now_iso, runtime_state  # noqa: E402
 from app.thermal import WARN_MARGIN, build_wafer_thermal  # noqa: E402
 
-csv_path = sys.argv[1]
-info = import_csv(csv_path, wafer_override="W01")
+if len(sys.argv) != 2:
+    raise SystemExit("usage: build_thermal_fixture.py <RawResult.csv|data-directory>")
+
+source = Path(sys.argv[1]).expanduser()
+csv_paths = (
+    [source]
+    if source.is_file()
+    else sorted(source.glob("A12345_W*_RawResult.csv"))
+)
+if not csv_paths:
+    raise SystemExit(f"no RawResult CSV found: {source}")
+
+csv_path = csv_paths[0]
+info = import_csv(str(csv_path), wafer_override="W01")
 built = build_wafer_thermal(list(runtime_state.devices), info["lot"], "W01", False, None, now_iso())
 fixture = {
     "sourceCsv": Path(csv_path).name,
@@ -52,3 +68,16 @@ fail_out.write_text(
     encoding="utf-8",
 )
 print("wrote", fail_out, len(fails["rows"]), "fail rows,", len(fails["events"]), "events")
+
+if len(csv_paths) > 1:
+    fail_fixtures = {}
+    for index, path in enumerate(csv_paths):
+        match = path.stem.split("_W")[-1].split("_")[0]
+        wafer = f"W{int(match):02d}"
+        info = import_csv(str(path), lot_override="A12345", wafer_override=wafer, reset=index == 0)
+        data = runtime_state.wafer_fails(info["lot"], wafer)
+        if data is not None:
+            fail_fixtures[wafer] = {"sourceCsv": path.name, **data}
+    all_fail_out = out.parent / "failFixtures.json"
+    all_fail_out.write_text(json.dumps(fail_fixtures, ensure_ascii=False, separators=(",", ":")), encoding="utf-8")
+    print("wrote", all_fail_out, len(fail_fixtures), "wafer fixtures")

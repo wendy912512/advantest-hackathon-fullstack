@@ -8,7 +8,10 @@ from threading import RLock
 from typing import Any, Callable
 
 from .bin_labels import bin_label, hard_bin_label
-from .events import derive_fail_events
+from .events import derive_fail_events, event_id
+from .alert_manager import AlertManager
+from .anomaly_engine import AnomalyEngine
+from .models import Measurement as AnomalyMeasurement
 from .schemas import DeviceTestResult, Measurement, TestResultField
 from .thermal import build_wafer_thermal, sensor_index
 
@@ -91,6 +94,10 @@ class RuntimeState:
     # 推算；CSV 匯入時所有數值一次到齊，所以用 /api/internal/thermal-progress
     # 模擬進度）。沒設定時預設 3：sensor1~3 已實測、正要預測 sensor4。
     thermal_completed: dict[tuple[str, str], int] = field(default_factory=dict)
+    anomaly_engine: AnomalyEngine = field(default_factory=AnomalyEngine, repr=False)
+    alert_manager: AlertManager = field(default_factory=AlertManager, repr=False)
+    live_alerts: list[dict[str, Any]] = field(default_factory=list, repr=False)
+    last_wafer_report: dict[str, Any] | None = field(default=None, repr=False)
     lock: RLock = field(default_factory=RLock, repr=False)
 
     def start_lot(self, lot: str) -> None:
@@ -99,15 +106,46 @@ class RuntimeState:
             self.wafer = "-"
             self.devices.clear()
             self.pending_measurements.clear()
+            self.live_alerts.clear()
+            self.last_wafer_report = None
 
     def start_wafer(self, wafer: str, radius: int = 20) -> None:
         with self.lock:
             self.wafer = wafer
             self.wafer_radius = radius
 
-    def record_measurement(self, measurement: Measurement) -> None:
+    def finish_wafer(self) -> dict[str, Any]:
+        """Freeze the current wafer summary when ONEAPI emits WAFEREND."""
+        report = {
+            "generatedAt": now_iso(),
+            "lot": self.lot,
+            "wafer": self.wafer,
+            "alerts": self.anomaly_alerts(),
+            "devices": len(self.devices),
+        }
+        with self.lock:
+            self.last_wafer_report = report
+        return report
+
+    def record_measurement(self, measurement: Measurement, set_message=None) -> None:
         with self.lock:
             self.pending_measurements[measurement.site].append(measurement)
+            alert_measurement = AnomalyMeasurement(
+                tester_id="testerA",
+                lot_id=self.lot,
+                wafer_id=self.wafer,
+                site=measurement.site,
+                test_name=measurement.testSuiteName,
+                value=measurement.value or 0.0,
+                unit=measurement.unit,
+                low_limit=measurement.lowLimit,
+                high_limit=measurement.highLimit,
+                passed=measurement.passed,
+            )
+            for alert in self.anomaly_engine.evaluate_measurement(alert_measurement).alerts:
+                if self.alert_manager.publish(alert, set_message):
+                    self.live_alerts.append(alert.as_dict())
+            self.live_alerts = self.live_alerts[-100:]
 
     def record_test_end(self, result: DeviceTestResult) -> None:
         with self.lock:
@@ -132,8 +170,40 @@ class RuntimeState:
         # CSV mock 會把 W01~W25 一起載入 runtime；Dashboard 顯示的是目前
         # 選中的 wafer，Lot Summary 才負責跨 wafer 彙總。
         current_devices = [entry for entry in devices if entry.device.wafer == wafer] if wafer != "-" else devices
-        return build_snapshot(current_devices, lot, wafer)
+        return build_snapshot(current_devices, lot, wafer, self.anomaly_alerts())
 
+    def anomaly_alerts(self) -> list[dict[str, Any]]:
+        with self.lock:
+            devices = [entry.model_copy(deep=True) for entry in self.devices]
+            lot = self.lot
+            wafer = self.wafer
+        measurements = []
+        for touchdown_index, entry in enumerate(devices):
+            for result in entry.results:
+                if result.value is None:
+                    continue
+                measurements.append(AnomalyMeasurement(
+                    tester_id="testerA",
+                    lot_id=entry.device.lot or lot,
+                    wafer_id=entry.device.wafer or wafer,
+                    site=entry.device.site,
+                    test_name=result.testSuiteName,
+                    value=result.value,
+                    unit=result.unit,
+                    low_limit=result.lowLimit,
+                    high_limit=result.highLimit,
+                    touchdown_index=touchdown_index,
+                    x=entry.device.x,
+                    y=entry.device.y,
+                    soft_bin=entry.device.softBin,
+                    hard_bin=entry.device.hardBin,
+                    passed=result.pass_,
+                ))
+        alerts = [alert.as_dict() for alert in self.anomaly_engine.evaluate_wafer(measurements).alerts]
+        return self.live_alerts[-100:] + alerts
+
+    def alerts(self) -> list[dict[str, Any]]:
+        return self.anomaly_alerts()
     def site_summaries(self) -> list[dict[str, Any]]:
         with self.lock:
             devices = [entry.model_copy(deep=True) for entry in self.devices]
@@ -310,6 +380,69 @@ class RuntimeState:
                 item = counts.setdefault(row["event"], {"event": row["event"], "meaning": row["meaning"], "count": 0})
                 item["count"] += 1
         return {"lot": lot, "wafer": wafer, "events": sorted(counts.values(), key=lambda e: e["event"]), "rows": rows}
+
+    def wafer_distribution(self, lot: str, wafer: str, selected_event: str | None = None) -> dict[str, Any] | None:
+        """Return all numeric measurements for one event on one wafer.
+
+        Unlike ``wafer_fails()``, this intentionally includes PASS and FAIL
+        values so the frontend can draw an unbiased empirical CDF.
+        """
+        with self.lock:
+            entries = [
+                entry.model_copy(deep=True)
+                for entry in self.devices
+                if entry.device.lot == lot and entry.device.wafer == wafer
+            ]
+        if not entries:
+            return None
+
+        grouped: dict[str, dict[str, Any]] = {}
+        for entry in entries:
+            for result in entry.results:
+                if result.value is None:
+                    continue
+                key = event_id(result.testNumber, result.testSuiteName, result.pinName)
+                item = grouped.setdefault(key, {
+                    "event": key,
+                    "testSuiteName": result.testSuiteName,
+                    "pinName": result.pinName,
+                    "unit": result.unit,
+                    "lowLimit": result.lowLimit,
+                    "highLimit": result.highLimit,
+                    "samples": [],
+                })
+                item["samples"].append({
+                    "pid": entry.device.pid,
+                    "site": entry.device.site,
+                    "value": result.value,
+                    "pass": result.pass_,
+                })
+
+        events = [
+            {key: value for key, value in item.items() if key != "samples"} | {"count": len(item["samples"])}
+            for item in sorted(grouped.values(), key=lambda item: item["event"])
+        ]
+        if not events:
+            return {"lot": lot, "wafer": wafer, "events": [], "selectedEvent": None, "samples": []}
+
+        key = selected_event if selected_event in grouped else events[0]["event"]
+        item = grouped[key]
+        values = sorted(sample["value"] for sample in item["samples"])
+        n = len(values)
+        samples = [
+            {**sample, "probability": (index + 0.5) / n}
+            for index, sample in enumerate(sorted(item["samples"], key=lambda sample: sample["value"]))
+        ]
+        return {
+            "lot": lot,
+            "wafer": wafer,
+            "events": events,
+            "selectedEvent": key,
+            "unit": item["unit"],
+            "lowLimit": item["lowLimit"],
+            "highLimit": item["highLimit"],
+            "samples": samples,
+        }
 
     def set_thermal_progress(self, completed: int) -> None:
         with self.lock:
@@ -556,10 +689,15 @@ def build_site_summaries(entries: list[DeviceTestResult]) -> list[dict[str, Any]
     return summaries
 
 
-def build_snapshot(entries: list[DeviceTestResult], lot: str, wafer: str) -> dict[str, Any]:
+def build_snapshot(
+    entries: list[DeviceTestResult],
+    lot: str,
+    wafer: str,
+    anomaly_alerts: list[dict[str, Any]] | None = None,
+) -> dict[str, Any]:
     pass_rate = sum(entry.device.pf == "PASS" for entry in entries) / len(entries) if entries else 0
     site_summaries = build_site_summaries(entries)
-    alerts = [
+    site_alerts = [
         {
             "id": f"site-{summary['site']}-imbalance",
             "site": summary["site"],
@@ -569,6 +707,18 @@ def build_snapshot(entries: list[DeviceTestResult], lot: str, wafer: str) -> dic
             "message": summary["anomalyReason"],
         }
         for summary in site_summaries if summary["isAnomalous"]
+    ]
+    rule_alerts = anomaly_alerts or []
+    alerts = site_alerts + [
+        {
+            "id": f"{alert['wafer']}-{alert['type']}-{alert.get('testName') or 'wafer'}-{alert.get('site') or 'all'}",
+            "site": alert.get("site") or 0,
+            "testSuiteName": alert.get("testName") or "WAFER",
+            "direction": "SHIFT",
+            "detectedAt": now_iso(),
+            "message": alert["message"],
+        }
+        for alert in rule_alerts
     ]
     return {
         "generatedAt": now_iso(),

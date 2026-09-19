@@ -7,7 +7,7 @@ import type { LotSummary, WaferListItem, WaferThermal } from "@/lib/api";
 import { fetchLotSummary, fetchWaferThermal } from "@/lib/api";
 import { LotWaferFilter } from "@/components/common/LotWaferFilter";
 import { WaferThermalView } from "@/components/temperature/WaferThermalView";
-import { C } from "@/lib/theme";
+import { C, MONO } from "@/lib/theme";
 
 // 選到「目前正在測試的 lot/wafer」→ 看最即時的資料（預測進行中，實測尚未回來
 // 的 sensor 只有預測）；選其他 wafer → 看預測 + 正式結果（實測已回來，可以驗證）。
@@ -75,6 +75,11 @@ export default function TemperaturePage() {
 
   return (
     <div>
+      <div style={{ marginBottom: 20 }}>
+        <div style={{ color: C.blue, fontFamily: MONO, fontSize: 11, fontWeight: 700, letterSpacing: "0.1em", marginBottom: 7 }}>THERMAL PREDICTION</div>
+        <h1 style={{ color: C.text, fontSize: 25, fontWeight: 650, letterSpacing: "-0.02em", margin: 0 }}>Wafer 溫度預測</h1>
+        <p style={{ color: C.muted, fontSize: 13, margin: "7px 0 0" }}>比較各個 sensor 的預測值與實測值，提前標示可能超過溫度上限的 Device。</p>
+      </div>
       <LotWaferFilter
         lots={lots}
         selectedLot={selectedLot}

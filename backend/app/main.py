@@ -72,6 +72,12 @@ def dashboard_snapshot() -> dict:
     return runtime_state.snapshot()
 
 
+@app.get("/api/alerts")
+def alerts() -> list[dict]:
+    """Structured anomaly alerts for the dashboard and future WebSocket push."""
+    return runtime_state.alerts()
+
+
 @app.get("/api/sites")
 def sites() -> list[dict]:
     return runtime_state.site_summaries()
@@ -106,6 +112,14 @@ def wafer_map(lot: str, wafer: str) -> dict:
 @app.get("/api/lots/{lot}/wafers/{wafer}/fails")
 def wafer_fails(lot: str, wafer: str) -> dict:
     data = runtime_state.wafer_fails(lot, wafer)
+    if data is None:
+        raise HTTPException(status_code=404, detail="Wafer not found")
+    return data
+
+
+@app.get("/api/lots/{lot}/wafers/{wafer}/distribution")
+def wafer_distribution(lot: str, wafer: str, event: str | None = None) -> dict:
+    data = runtime_state.wafer_distribution(lot, wafer, event)
     if data is None:
         raise HTTPException(status_code=404, detail="Wafer not found")
     return data

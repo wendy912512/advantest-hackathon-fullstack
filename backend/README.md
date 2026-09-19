@@ -14,7 +14,7 @@ python3 -m venv .venv && .venv/bin/pip install -r requirements.txt
 
 ## 本機 CSV Mock
 
-本機啟動時會優先載入 `training/Data/A12345_W01_RawResult.csv` 到 `A12345_W25_RawResult.csv`，並統一提供 Dashboard、Site、Wafer Map 與 Fail Table，避免各畫面使用不同 mock 資料。每份 CSV 會對應成 `W01` 到 `W25`。
+本機啟動時會優先載入 `training/Data/A12345_W01_RawResult.csv` 到 `A12345_W25_RawResult.csv`，並統一提供 Dashboard、Site、Wafer Map 與 Fail Table，避免各畫面使用不同 mock 資料。使用者選擇 `W01`～`W25` 時，API 會依 wafer 回傳對應 CSV 匯入的資料。
 
 也可以只指定一份檔案：
 
@@ -61,5 +61,46 @@ $env:ADVANTEST_MOCK_CSV = "off"
 
 - **Bin 名稱**：Bin 1 確認代表「通過」；其他 bin 目前沒有更細的失敗原因，因此 UI 統一顯示「測試失敗」，不直接呈現 `bin2`、`bin3` 等內部編號。拿到正式 bin 定義後再補上細分類（`app/bin_labels.py`、`frontend/src/lib/binLabels.ts`）。
 - **事件涵義**：只有名稱本身有明確依據的才寫——`sensorN`（官方題目點名的溫度 sensor）與 `IDDQ_flow` 底下的測項；其餘約 3000 個 suite 沒有任何說明，涵義欄不顯示（`app/events.py`）。
+這個目錄包含 ACS RTDI / ONEAPI 後端的第一個可驗證切片：現有 FastAPI/ONEAPI bridge、事件共用資料模型、異常規則引擎、CSV 離線驗證與告警 API。現階段仍不在本機假造 ONEAPI SDK；真正的 `consumeData(self, tc, data)` adapter 應在 ACS Edge Server 內呼叫這套純 Python 核心。
 
+## 先跑離線驗證
+
+第一次使用先建立環境並安裝依賴：
+
+```bash
+python3 -m venv backend/.venv
+backend/.venv/bin/python -m pip install -r backend/requirements.txt
+```
+
+在專案根目錄執行：
+
+```bash
+python3 -m unittest discover -s backend/tests -t backend
+python3 backend/run_validation.py --data-dir "/Users/linyunhsuan/Desktop/碩士班/梅竹黑客松/training/Data"
+```
+
+啟動本機 API：
+
+```bash
+backend/.venv/bin/uvicorn app.main:app --app-dir backend --reload --port 8000
+```
+
+`run_validation.py` 會逐片讀取 25 片訓練 wafer，確認至少抓到題目標註的 W1 site unbalance、W3/W9 low yield、W14/W18 mean trend、W23/W25 stdev trend。正常 wafer 仍會列出規則可能發出的補充告警，這些需要在實際 demo 前依誤報率再調整。
+
+## 模組分工
+
+- `app/models.py`：ONEAPI 與 CSV 共用的量測、告警、摘要資料結構。
+- `app/csv_adapter.py`：離線訓練資料轉成量測事件；未來即時事件改接 `event_parser.py`。
+- `app/anomaly_engine.py`：OOS、低良率、site 不平衡、平均值趨勢、標準差趨勢。
+- `app/state.py`：callback 與 API/WebSocket worker 共用的 thread-safe wafer 狀態，並把已組裝的 device/test 結果送進異常引擎。
+- `app/alert_manager.py`：告警去重，並保留 `ActionManager.set_message(testerId, message)` 的單一出口。
+- `run_validation.py`：先用訓練 CSV 驗證規則是否抓到官方標註。
+
+- `app/main.py`：既有 Dashboard API，加上 `GET /api/alerts` 結構化告警端點。
+- `app/event_parser.py`：`consumeData(self, tc, data)` 的事件分派入口；只在 ACS 環境確認 getter 後接入正式 SampleMonitor。
+- `app/worker.py`：背景事件 worker，讓 ONEAPI callback 只 enqueue，不阻塞測試程式。
+
+## 接 ONEAPI 時的順序
+
+ONEAPI 的 `consumeData()` 只做事件類型判斷、欄位轉換與 enqueue；背景 worker 再呼叫 `RuntimeState`、`AnomalyEngine`、`AlertManager`。目前 `event_parser.py` 已先把 `LOTSTART`、`WAFERSTART`、`DATA_TYP_MEASURED_PARAMETRIC`、`DATA_TYP_MEASURED_MULTI_PARAM`、`TESTEND`、`WAFEREND` 對齊到 bridge；`WAFEREND` 會保存一份 wafer summary，正式報告欄位仍需在 ACS 現場確認事件後補強。
 請勿將 ACS Gemini、Edge 或 ONEAPI 的帳號、Token、密鑰與內部連線資訊提交到 Git。

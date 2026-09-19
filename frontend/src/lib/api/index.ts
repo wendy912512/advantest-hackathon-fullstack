@@ -1,4 +1,5 @@
 export * from "./types";
+export * from "./distribution";
 export * from "./client";
 export * from "./dashboard";
 export * from "./sites";
