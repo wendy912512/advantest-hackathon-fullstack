@@ -2,7 +2,6 @@
 
 import { useMemo, useState } from "react";
 import type { FailRow } from "@/lib/api";
-import { formatHardBin, formatSoftBin } from "@/lib/binLabels";
 import { C, MONO } from "@/lib/theme";
 
 const ALL = "__all__";
@@ -28,7 +27,7 @@ export function FailEventsTable({ rows, title }: { rows: FailRow[]; title: strin
   const active = event === ALL || options.some(([e]) => e === event) ? event : ALL;
   const shown = active === ALL ? rows : rows.filter((r) => r.event === active);
   const showEventColumns = shown.some((r) => r.event);
-  const headers = ["PID", "X", "Y", "High Limit", "Low Limit", "實際數值", "SBin", "HBin", ...(showEventColumns ? ["事件編號"] : []), "判定原因"];
+  const headers = ["PID", "X", "Y", "High Limit", "Low Limit", "實際數值", ...(showEventColumns ? ["事件編號"] : []), "判定原因"];
   const numeric = new Set(["X", "Y", "High Limit", "Low Limit", "實際數值"]);
   const cell = { padding: "7px 12px", whiteSpace: "nowrap" as const };
 
@@ -73,8 +72,6 @@ export function FailEventsTable({ rows, title }: { rows: FailRow[]; title: strin
                 <td style={{ ...cell, textAlign: "right", color: C.muted }}>{r.highLimit ?? "—"}</td>
                 <td style={{ ...cell, textAlign: "right", color: C.muted }}>{r.lowLimit ?? "—"}</td>
                 <td style={{ ...cell, textAlign: "right", fontWeight: 600, color: C.red }}>{r.value ?? "—"}</td>
-                <td style={cell}>{formatSoftBin(r.softBin)}</td>
-                <td style={cell}>{formatHardBin(r.hardBin)}</td>
                 {showEventColumns && <td style={{ ...cell, color: C.sub }}>{r.event ?? "—"}</td>}
                 <td style={{ ...cell, fontFamily: "inherit", color: C.sub }}>{reasonFor(r)}</td>
               </tr>

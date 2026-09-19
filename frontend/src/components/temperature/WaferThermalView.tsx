@@ -33,6 +33,7 @@ export function WaferThermalView({ data }: { data: WaferThermal }) {
   // 後端每 5 秒更新一次 live thermal。只有 wafer 或測試進度改變時重設，
   // 使用者手動點選其他已實測 sensor 時不會被一般輪詢覆蓋。
   useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- 換 wafer 或下一個 sensor 改變時同步預設分頁
     setSensorIndex(preferredSensor);
   }, [data.lot, data.wafer, data.nextSensor, preferredSensor]);
   // hover（或鍵盤 focus）時在該格旁邊浮出詳細卡片（位置由格子的 offset 算出，卡片本身
