@@ -19,6 +19,9 @@ LOGGER = logging.getLogger(__name__)
 
 def fallback_csv_path() -> Path | None:
     """Return a local demo CSV when OneAPI is not producing callbacks yet."""
+    if os.getenv("RTDI_USE_CSV_FALLBACK", "").lower() not in {"1", "true", "yes"}:
+        return None
+
     configured_path = os.getenv("RTDI_FALLBACK_CSV")
     if configured_path:
         path = Path(configured_path).expanduser()
