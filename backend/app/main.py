@@ -122,6 +122,7 @@ def import_local_csv(
     reset: bool = True,
     lot: str | None = None,
     wafer: str | None = None,
+    measurement_limit: int = 24,
 ) -> dict:
     """Load a local test-log CSV into the runtime dashboard state.
 
@@ -129,6 +130,12 @@ def import_local_csv(
     ACS data should enter through the OneAPI callback adapters above instead.
     """
     try:
-        return import_csv(path, lot_override=lot, wafer_override=wafer, reset=reset)
+        return import_csv(
+            path,
+            lot_override=lot,
+            wafer_override=wafer,
+            reset=reset,
+            measurement_limit=max(1, min(measurement_limit, 100)),
+        )
     except CsvImportError as error:
         raise HTTPException(status_code=400, detail=str(error)) from error

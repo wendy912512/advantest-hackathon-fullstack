@@ -42,18 +42,17 @@ def _as_float(value: str) -> float | None:
 
 
 def _as_pass_fail(value: str, soft_bin: int) -> str:
-    if value.strip().upper() in {"PASS", "P", "TRUE", "1", "Y", "YES"}:
+    value = value.strip().upper()
+    if value in {"PASS", "P", "TRUE", "1", "Y", "YES"}:
         return "PASS"
-    if value.strip().upper() in {"FAIL", "F", "FALSE", "0", "N", "NO"}:
+    if value in {"FAIL", "F", "FALSE", "N", "NO"}:
         return "FAIL"
     return "PASS" if soft_bin == 1 else "FAIL"
 
 
 def _test_kind(value: str) -> str:
     candidate = value.strip().upper().replace(" ", "_")
-    if candidate in {"FUNCTIONAL", "PARAMETRIC", "MULTI_PARAM", "SCAN"}:
-        return candidate
-    return "MULTI_PARAM"
+    return candidate if candidate in {"FUNCTIONAL", "PARAMETRIC", "MULTI_PARAM", "SCAN"} else "MULTI_PARAM"
 
 
 def _filename_lot(path: Path) -> str:
@@ -65,32 +64,143 @@ def _filename_wafer(path: Path) -> str:
     return f"W{match.group(1)}" if match else "CSV-WAFER"
 
 
-def _read_rows(path: Path) -> list[dict[str, str]]:
+def _read_table(path: Path) -> list[list[str]]:
     for encoding in ("utf-8-sig", "utf-8", "cp950"):
         try:
             with path.open("r", encoding=encoding, newline="") as file:
-                reader = csv.DictReader(file)
-                if not reader.fieldnames:
+                table = list(csv.reader(file))
+                if not table:
                     raise CsvImportError("CSV 缺少欄位標題列")
-                return list(reader)
+                return table
         except UnicodeDecodeError:
             continue
     raise CsvImportError("CSV 編碼無法讀取，請使用 UTF-8 或 Big5/CP950")
 
 
-def import_csv(path_value: str, *, lot_override: str | None = None, wafer_override: str | None = None,
-               reset: bool = True) -> dict[str, Any]:
-    """Convert a CSV log into the same events used by the OneAPI callback path.
+def _wide_test_name(column_name: str) -> str:
+    return column_name.split("_", maxsplit=1)[-1].split("#", maxsplit=1)[0] or column_name
 
-    The dataset column spelling is intentionally normalised (for example,
-    ``PartId``, ``part_id`` and ``PID`` are treated as the same field).
-    """
+
+def _wide_test_number(column_name: str, metadata_value: str, fallback: int) -> int:
+    number = _as_int(metadata_value, default=0)
+    if number:
+        return number
+    match = re.match(r"(\d+)_", column_name)
+    return int(match.group(1)) if match else fallback
+
+
+def _import_wide_raw_result(
+    table: list[list[str]],
+    path: Path,
+    *,
+    lot_override: str | None,
+    wafer_override: str | None,
+    reset: bool,
+    measurement_limit: int,
+) -> dict[str, Any]:
+    if len(table) < 6:
+        raise CsvImportError("RawResult CSV 缺少測項描述列或 Device 資料列")
+
+    header, pins, test_numbers, high_limits, low_limits, *device_rows = table
+    if not device_rows:
+        raise CsvImportError("RawResult CSV 沒有 Device 資料列")
+
+    candidate_columns = [
+        index
+        for index in range(10, len(header))
+        if any(_as_float(row[index] if index < len(row) else "") is not None for row in device_rows)
+    ]
+    selected_columns = candidate_columns[:measurement_limit]
+    if not selected_columns:
+        raise CsvImportError("RawResult CSV 找不到可用的數值測項")
+
+    first = device_rows[0]
+    imported_lot = lot_override or (first[1].strip() if len(first) > 1 else "") or _filename_lot(path)
+    if reset:
+        runtime_state.start_lot(imported_lot)
+
+    result_count = 0
+    for row_index, row in enumerate(device_rows, start=1):
+        if len(row) < 10:
+            continue
+        soft_bin = _as_int(row[7] if len(row) > 7 else "", default=1)
+        hard_bin = _as_int(row[8] if len(row) > 8 else "", default=soft_bin)
+        pf = _as_pass_fail(row[6] if len(row) > 6 else "", soft_bin)
+        results = []
+        for fallback, column_index in enumerate(selected_columns, start=1):
+            value = _as_float(row[column_index] if column_index < len(row) else "")
+            if value is None:
+                continue
+            results.append(TestResultField(
+                testNumber=_wide_test_number(
+                    header[column_index],
+                    test_numbers[column_index] if column_index < len(test_numbers) else "",
+                    fallback,
+                ),
+                testSuiteName=_wide_test_name(header[column_index]),
+                pinName=(pins[column_index] if column_index < len(pins) else "") or None,
+                kind="PARAMETRIC",
+                value=value,
+                unit=None,
+                lowLimit=_as_float(low_limits[column_index] if column_index < len(low_limits) else ""),
+                highLimit=_as_float(high_limits[column_index] if column_index < len(high_limits) else ""),
+                **{"pass": pf == "PASS"},
+            ))
+        runtime_state.record_test_end(DeviceTestResult(
+            device=DeviceInfo(
+                pid=(row[0].strip() if row else "") or f"row-{row_index}",
+                lot=(row[1].strip() if len(row) > 1 else "") or imported_lot,
+                wafer=wafer_override or (row[2].strip() if len(row) > 2 else "") or _filename_wafer(path),
+                site=max(_as_int(row[3] if len(row) > 3 else "", default=1), 1),
+                x=_as_int(row[4] if len(row) > 4 else ""),
+                y=_as_int(row[5] if len(row) > 5 else ""),
+                pf=pf,
+                softBin=soft_bin,
+                hardBin=hard_bin,
+                testTime=(row[9].strip() if len(row) > 9 else "") or now_iso(),
+            ),
+            results=results,
+        ))
+        result_count += len(results)
+
+    return {
+        "source": str(path),
+        "lot": imported_lot,
+        "rowsRead": len(device_rows),
+        "devicesImported": len(device_rows),
+        "measurementsImported": result_count,
+        "measurementLimit": measurement_limit,
+        "reset": reset,
+    }
+
+
+def import_csv(
+    path_value: str,
+    *,
+    lot_override: str | None = None,
+    wafer_override: str | None = None,
+    reset: bool = True,
+    measurement_limit: int = 24,
+) -> dict[str, Any]:
+    """Convert a CSV log into the same events used by the OneAPI callback path."""
 
     path = Path(path_value).expanduser()
     if not path.is_file() or path.suffix.lower() != ".csv":
         raise CsvImportError("找不到 CSV 檔案，或檔案不是 .csv 格式")
 
-    rows = _read_rows(path)
+    table = _read_table(path)
+    if table[0][:10] == ["PID", "Lot", "Wafer", "Site", "X", "Y", "PF", "SBin", "HBin", "Test Time"]:
+        return _import_wide_raw_result(
+            table,
+            path,
+            lot_override=lot_override,
+            wafer_override=wafer_override,
+            reset=reset,
+            measurement_limit=max(1, measurement_limit),
+        )
+
+    header, *raw_rows = table
+    rows = [dict(zip(header, row)) for row in raw_rows]
     if not rows:
         raise CsvImportError("CSV 沒有資料列")
 
@@ -108,7 +218,6 @@ def import_csv(path_value: str, *, lot_override: str | None = None, wafer_overri
     if reset:
         runtime_state.start_lot(imported_lot)
 
-    device_count = 0
     result_count = 0
     for (pid, site, wafer, timestamp, x, y), device_rows in grouped.items():
         first = device_rows[0]
@@ -145,14 +254,14 @@ def import_csv(path_value: str, *, lot_override: str | None = None, wafer_overri
             ),
             results=results,
         ))
-        device_count += 1
         result_count += len(results)
 
     return {
         "source": str(path),
         "lot": imported_lot,
         "rowsRead": len(rows),
-        "devicesImported": device_count,
+        "devicesImported": len(grouped),
         "measurementsImported": result_count,
+        "measurementLimit": None,
         "reset": reset,
     }

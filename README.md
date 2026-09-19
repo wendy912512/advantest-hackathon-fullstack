@@ -21,8 +21,8 @@ SmarTest 執行測試
 
 前端啟動方式：
 
-```bash
-cd frontend
+```cmd
+cd /d C:\advantest-hackathon-fullstack\frontend
 npm install
 npm run dev
 ```
@@ -33,12 +33,12 @@ npm run dev
 
 後端位於 `backend/`，請另開終端機執行：
 
-```powershell
-cd backend
-python -m venv .venv
-.\.venv\Scripts\Activate.ps1
-python -m pip install -r requirements.txt
-uvicorn app.main:app --reload --port 8080
+```cmd
+cd /d C:\advantest-hackathon-fullstack\backend
+py -m venv .venv
+.venv\Scripts\activate.bat
+py -m pip install -r requirements.txt
+py -m uvicorn app.main:app --reload --port 8080
 ```
 
 前端在 `frontend/` 建立 `.env.local`，填入：
@@ -48,6 +48,24 @@ NEXT_PUBLIC_API_BASE_URL=http://127.0.0.1:8080/api
 ```
 
 目前後端以記憶體保存即時事件，服務重啟後資料會清空；競賽即時展示不需要另外建立資料庫。
+
+### 題目 CSV 資料
+
+本機展示可將題目 CSV 複製到 `backend\data\`。此資料夾已加入 Git 忽略規則，CSV 不會被提交或推送；原始檔仍保留在 `C:\Users\feng2\Downloads\training\Data`。
+
+```cmd
+cd /d C:\advantest-hackathon-fullstack
+mkdir backend\data
+copy "C:\Users\feng2\Downloads\training\Data\*.csv" backend\data\
+```
+
+後端啟動後，匯入一份資料到即時儀表板：
+
+```cmd
+curl -X POST "http://127.0.0.1:8080/api/internal/import-csv?path=C:\advantest-hackathon-fullstack\backend\data\A12345_W01_RawResult.csv&reset=true&measurement_limit=24"
+```
+
+官方 RawResult CSV 每顆 Device 有數千個測項；即時 API 預設載入 24 個有效數值測項，避免瀏覽器回傳過大。完整 CSV 會保留在 `backend\data\`，供後續分析或模型使用。到 ACS 正式串接 OneAPI callback 時，不需要匯入 CSV。
 
 ## 專案結構
 
