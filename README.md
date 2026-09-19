@@ -1,17 +1,18 @@
-# Advantest Hackathon — RTDI 即時異常監控前端
+# Advantest 黑客松 — ACS RTDI 全端系統
 
-半導體測試資料即時串流與異常監控 Dashboard 前端。基於 Next.js（App Router）+ TypeScript + Tailwind CSS + shadcn/ui 建置，透過 Axios 呼叫後端 API（目前尚未串接，使用 Mock 資料開發）。
+半導體測試資料即時串流與異常監控平台。前端使用 Next.js、TypeScript 與 Tailwind CSS；後端使用 FastAPI，提供儀表板所需的 API 與 WebSocket 即時串流。
 
 ## 系統架構
 
 本專案利用 Advantest ONEAPI 提供的即時測試資料（lot/wafer/site/test）：
 
 ```
-SmartTest 執行測試
+SmarTest 執行測試
   → ACS Nexus 收集事件
   → ONEAPI 透過 consumeData() 逐一送出事件（LOTSTART...WAFERSTART...TESTEND...WAFEREND...LOTEND）
-  → 後端組裝、判讀（尚未串接）
-  → 前端（本網站）呼叫 API 顯示結果
+  → OneAPI 轉接層將必要欄位寫入後端共享狀態
+  → FastAPI 提供 API 與 WebSocket
+  → 前端網頁呼叫 API 顯示結果
 ```
 
 網站內建 [/about](src/app/about/page.tsx) 頁面說明完整事件流程與名詞對照。後端建置規格（要支援哪些事件、如何組裝成前端需要的格式、各 API 應回傳的型別）見團隊 Notion「後端建立指引」文件。
@@ -32,16 +33,41 @@ npm run dev
 
 開啟瀏覽器造訪 [http://localhost:3000](http://localhost:3000)。
 
+### 後端
+
+後端位於 `backend/`，請另開終端機執行：
+
+```powershell
+cd backend
+python -m venv .venv
+.\.venv\Scripts\Activate.ps1
+python -m pip install -r requirements.txt
+uvicorn app.main:app --reload --port 8080
+```
+
+前端在專案根目錄建立 `.env.local`，填入：
+
+```text
+NEXT_PUBLIC_API_BASE_URL=http://127.0.0.1:8080/api
+```
+
+目前後端以記憶體保存即時事件，服務重啟後資料會清空；競賽即時展示不需要另外建立資料庫。
+
 ## 專案結構
 
 ```
+backend/
+├── app/main.py              # FastAPI 路由與 WebSocket 即時串流
+├── app/state.py             # OneAPI 回呼與網頁 API 共用的即時狀態
+├── app/oneapi_bridge.py     # 部署時接入官方 sample.py 的 OneAPI 轉接層
+└── requirements.txt
 src/
 ├── app/
 │   ├── page.tsx              # 儀表板首頁（即時異常監控面板）
-│   ├── sites/[id]/           # 單一 Site 詳細頁（imbalance 比較）
-│   ├── trends/                # 測試趨勢預警（SPC control chart）
-│   ├── lots/                  # 批次/晶圓品質摘要（Bin Pareto）
-│   ├── wafer-map/             # Wafer map 熱區圖
+│   ├── sites/[id]/           # 單一測試站詳細頁（站點失衡比較）
+│   ├── trends/                # 測試趨勢預警（統計製程管制圖）
+│   ├── lots/                  # 批次／晶圓品質摘要（分級統計圖）
+│   ├── wafer-map/             # 晶圓分布圖
 │   ├── explainer/             # 測試結果解釋器
 │   ├── about/                 # 系統架構說明
 │   ├── _components/          # 首頁專屬元件
@@ -52,7 +78,7 @@ src/
 │   └── ui/                    # shadcn/ui 基礎元件
 ├── hooks/                     # 自訂 Hook（各頁面輪詢資料）
 ├── lib/
-│   ├── api/                   # 所有 API 相關程式（client、types、各功能 API）
+│   ├── api/                   # 所有 API 相關程式（用戶端、型別、各功能 API）
 │   └── utils.ts
 └── types/
 ```
@@ -61,18 +87,18 @@ src/
 
 ## 資料層說明
 
-目前後端 ONEAPI 服務尚未就緒，[src/lib/api/mock.ts](src/lib/api/mock.ts) 會產生模擬的測試事件資料（Site 1–4，其中 Site 2 刻意模擬 imbalance 異常、Site 3 模擬趨勢漂移、Site 4 模擬位移，wafer map 模擬 edge die effect）。
+FastAPI 的端點格式已建立；OneAPI 實際接入時，將由 `backend/app/oneapi_bridge.py` 從官方 `sample.py` 的回呼函式轉入共享狀態。接入前需以實際 py-app.log 確認事件欄位與 CP／FT 流程。
 
-`src/lib/api/{dashboard,sites,trends,lots,wafer,explainer}.ts` 是各頁面實際呼叫的介面；後端串接完成後，只需把這些檔案內部改成呼叫 `apiClient`（見 [src/lib/api/client.ts](src/lib/api/client.ts)），其餘元件與頁面不需更動。回傳格式請對齊 [src/lib/api/types.ts](src/lib/api/types.ts) 裡的 TypeScript interface。
+`src/lib/api/{dashboard,sites,trends,lots,wafer,explainer,temperature}.ts` 透過 `apiClient` 呼叫 FastAPI；回傳格式以 [src/lib/api/types.ts](src/lib/api/types.ts) 為共同規格。`src/lib/api/mock.ts` 會保留給前端獨立開發使用，不會刪除。
 
 ## 常用套件
 
 | 類型 | 套件 |
 | --- | --- |
 | 樣式 | Tailwind CSS |
-| Icon | Tabler Icons |
-| UI 元件 | shadcn/ui |
-| HTTP Client | Axios |
+| 圖示 | Tabler Icons |
+| 介面元件 | shadcn/ui |
+| HTTP 用戶端 | Axios |
 
 ## 部署
 
