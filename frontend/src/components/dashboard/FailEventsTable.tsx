@@ -28,10 +28,7 @@ export function FailEventsTable({ rows, title }: { rows: FailRow[]; title: strin
   const active = event === ALL || options.some(([e]) => e === event) ? event : ALL;
   const shown = active === ALL ? rows : rows.filter((r) => r.event === active);
   const showEventColumns = shown.some((r) => r.event);
-  // 沒有任何事件有涵義時整欄不顯示（沒有依據就不寫）
-  const showMeaning = shown.some((r) => r.meaning);
-
-  const headers = ["PID", "X", "Y", "High Limit", "Low Limit", "實際數值", "SBin", "HBin", ...(showEventColumns ? ["事件編號"] : []), ...(showMeaning ? ["事件涵義"] : [])];
+  const headers = ["PID", "X", "Y", "High Limit", "Low Limit", "實際數值", "SBin", "HBin", ...(showEventColumns ? ["事件編號"] : []), "判定原因"];
   const numeric = new Set(["X", "Y", "High Limit", "Low Limit", "實際數值"]);
   const cell = { padding: "7px 12px", whiteSpace: "nowrap" as const };
 
@@ -79,7 +76,7 @@ export function FailEventsTable({ rows, title }: { rows: FailRow[]; title: strin
                 <td style={cell}>{formatSoftBin(r.softBin)}</td>
                 <td style={cell}>{formatHardBin(r.hardBin)}</td>
                 {showEventColumns && <td style={{ ...cell, color: C.sub }}>{r.event ?? "—"}</td>}
-                {showMeaning && <td style={{ ...cell, fontFamily: "inherit", color: C.sub }}>{r.meaning ?? "—"}</td>}
+                <td style={{ ...cell, fontFamily: "inherit", color: C.sub }}>{reasonFor(r)}</td>
               </tr>
             ))}
             {shown.length === 0 && (
@@ -94,4 +91,15 @@ export function FailEventsTable({ rows, title }: { rows: FailRow[]; title: strin
       </div>
     </div>
   );
+}
+
+function reasonFor(row: FailRow): string {
+  if (row.meaning) return row.meaning;
+  if (row.value !== null && row.highLimit !== null && row.value > row.highLimit) {
+    return `實際值 ${row.value} 超過 High Limit ${row.highLimit}`;
+  }
+  if (row.value !== null && row.lowLimit !== null && row.value < row.lowLimit) {
+    return `實際值 ${row.value} 低於 Low Limit ${row.lowLimit}`;
+  }
+  return `PF=Fail（SBin ${row.softBin} / HBin ${row.hardBin}）`;
 }

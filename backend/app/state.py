@@ -129,7 +129,10 @@ class RuntimeState:
             devices = [entry.model_copy(deep=True) for entry in self.devices]
             lot = self.lot
             wafer = self.wafer
-        return build_snapshot(devices, lot, wafer)
+        # CSV mock 會把 W01~W25 一起載入 runtime；Dashboard 顯示的是目前
+        # 選中的 wafer，Lot Summary 才負責跨 wafer 彙總。
+        current_devices = [entry for entry in devices if entry.device.wafer == wafer] if wafer != "-" else devices
+        return build_snapshot(current_devices, lot, wafer)
 
     def site_summaries(self) -> list[dict[str, Any]]:
         with self.lock:
@@ -540,6 +543,7 @@ def build_site_summaries(entries: list[DeviceTestResult]) -> list[dict[str, Any]
             "site": site,
             "count": len(site_entries),
             "passRate": sum(entry.device.pf == "PASS" for entry in site_entries) / len(site_entries),
+            "failDeviceCount": sum(entry.device.pf == "FAIL" for entry in site_entries),
             "mean": site_mean,
             "stdDev": std_dev(values),
             "isAnomalous": anomalous,

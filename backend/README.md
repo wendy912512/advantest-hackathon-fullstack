@@ -12,9 +12,24 @@ python3 -m venv .venv && .venv/bin/pip install -r requirements.txt
 
 前端 `next.config.ts` 已經把 `/api/*` rewrite 到 `http://127.0.0.1:8000/api/*`（可用 `BACKEND_ORIGIN` 環境變數改），所以本機開發不需要另外處理 CORS。
 
-## 目前沒有真實資料
+## 本機 CSV Mock
 
-`backend/data/` 目前只有 `.gitkeep`，還沒有載入任何真實 CSV/STDF。所有端點在沒有資料時都回傳空結果（`/api/lots` → `[]`、`/api/sites` → `[]` 等）。可以用 `/api/internal/import-csv` 手動匯入一份本地 CSV 測試；真正串接時應該由 `oneapi_bridge.py` 的 callback 對接 OneAPI 事件。前端 `src/lib/api/*.ts` 目前會在後端回傳空結果時自動退回 mock 資料（見 `withFallback.ts`），demo 時畫面仍然有內容。
+本機啟動時會優先載入 `training/Data/A12345_W01_RawResult.csv` 到 `A12345_W25_RawResult.csv`，並統一提供 Dashboard、Site、Wafer Map 與 Fail Table，避免各畫面使用不同 mock 資料。每份 CSV 會對應成 `W01` 到 `W25`。
+
+也可以只指定一份檔案：
+
+```powershell
+$env:ADVANTEST_MOCK_CSV_PATH = "C:\path\to\A12345_W01_RawResult.csv"
+uvicorn app.main:app --port 8000
+```
+
+若要停用自動載入：
+
+```powershell
+$env:ADVANTEST_MOCK_CSV = "off"
+```
+
+正式串接時應該由 `oneapi_bridge.py` 的 callback 對接 OneAPI 事件。若後端沒有資料或未啟動，前端 `src/lib/api/*.ts` 仍會依 `withFallback.ts` 使用示範資料。
 
 ## 場景二：per-device sensor 預測（給資料分析夥伴）
 

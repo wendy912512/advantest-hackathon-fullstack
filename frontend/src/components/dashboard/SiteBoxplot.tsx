@@ -33,7 +33,7 @@ export function SiteBoxplot({ sites }: { sites: SiteSummary[] }) {
         const [vmin, q1, med, q3, vmax] = dists[i];
         const cx = pad + slotW * i + slotW / 2;
         const bw = slotW * 0.4;
-        const status = siteStatus(s.passRate, s.isAnomalous);
+        const status = siteStatus(s.passRate, s.isAnomalous, s.failDeviceCount);
         const col = status === "normal" ? C.green : status === "warning" ? "#D97706" : C.red;
         return (
           <g key={s.site}>

@@ -2,6 +2,9 @@ from __future__ import annotations
 
 import asyncio
 from contextlib import asynccontextmanager
+import os
+from pathlib import Path
+import re
 
 from fastapi import FastAPI, HTTPException, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
@@ -14,6 +17,34 @@ from .state import runtime_state
 
 @asynccontextmanager
 async def lifespan(_: FastAPI):
+    # 本機 demo 預設載入 training/Data 的真實 RawResult CSV，讓 Dashboard、
+    # Wafer Map 與 Fail Table 都來自同一片 wafer。正式接 OneAPI 時可用
+    # ADVANTEST_MOCK_CSV=off 關閉；若找不到檔案則維持空狀態，交給前端 fallback。
+    mock_enabled = os.getenv("ADVANTEST_MOCK_CSV", "on").lower() not in {"0", "false", "off", "no"}
+    default_data_dir = Path(__file__).resolve().parents[3] / "training" / "Data"
+    csv_value = os.getenv("ADVANTEST_MOCK_CSV_PATH")
+    if csv_value:
+        csv_paths = [Path(csv_value).expanduser()]
+    else:
+        csv_paths = sorted(default_data_dir.glob("A12345_W*_RawResult.csv"))
+
+    if mock_enabled and csv_paths:
+        for index, csv_path in enumerate(csv_paths):
+            if not csv_path.is_file():
+                continue
+            match = re.search(r"_W(\d+)_RawResult$", csv_path.stem, flags=re.IGNORECASE)
+            wafer = f"W{int(match.group(1)):02d}" if match else None
+            try:
+                import_csv(
+                    str(csv_path),
+                    lot_override="A12345",
+                    wafer_override=wafer,
+                    reset=index == 0,
+                    measurement_limit=24,
+                )
+            except (CsvImportError, OSError):
+                # CSV mock 只是本機示範資料，單一檔案載入失敗時繼續載入其他 wafer。
+                continue
     yield
 
 

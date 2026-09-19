@@ -229,6 +229,7 @@ export function summarizeBySite(results: DeviceTestResult[]): SiteSummary[] {
   for (const [site, list] of Array.from(bySite.entries()).sort((a, b) => a[0] - b[0])) {
     const values = siteValues.get(site) ?? [];
     const passCount = list.filter((r) => r.device.pf === "PASS").length;
+    const failDeviceCount = list.filter((r) => r.device.pf === "FAIL").length;
     const siteMean = siteMeans.get(site) ?? 0;
     const siteStd = stdDev(values);
     const deviation = Math.abs(siteMean - robustCenter);
@@ -238,6 +239,7 @@ export function summarizeBySite(results: DeviceTestResult[]): SiteSummary[] {
       site,
       count: list.length,
       passRate: passCount / list.length,
+      failDeviceCount,
       mean: Number(siteMean.toFixed(4)),
       stdDev: Number(siteStd.toFixed(4)),
       isAnomalous,
