@@ -8,6 +8,7 @@ import { StatusDot } from "@/components/common/StatusDot";
 export interface SiteCardData {
   site: number;
   passRate: number;
+  failDeviceCount?: number;
   count?: number;
   mean?: number;
   stdDev?: number;
@@ -16,7 +17,7 @@ export interface SiteCardData {
 }
 
 export function SiteCard({ site, selected, onClick }: { site: SiteCardData; selected?: boolean; onClick: () => void }) {
-  const status = siteStatus(site.passRate, site.isAnomalous);
+  const status = siteStatus(site.passRate, site.isAnomalous, site.failDeviceCount);
   const isError = status === "error";
   const isWarn = status === "warning";
   const passRatePct = site.passRate * 100;
@@ -28,15 +29,15 @@ export function SiteCard({ site, selected, onClick }: { site: SiteCardData; sele
       className="text-left w-full transition-all duration-150 hover:shadow-md"
       style={{
         background: C.card,
-        border: `1px solid ${selected ? C.blue : isError ? C.redBorder : isWarn ? C.yellowBorder : C.border}`,
+        // 外框只表示目前選取的 Site；錯誤/警告狀態由右上角 badge 表示，避免
+        // 紅色外框和藍色選取外框產生視覺混淆。
+        border: `1px solid ${selected ? C.blue : C.border}`,
         borderRadius: 12,
         padding: "16px 18px",
         cursor: "pointer",
         boxShadow: selected
           ? `${C.shadowMd}, 0 0 0 2px ${C.blue}`
-          : isError
-            ? `${C.shadowMd}, 0 0 0 1px ${C.redBorder}`
-            : C.shadow,
+          : C.shadow,
       }}
     >
       <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 14 }}>
@@ -84,9 +85,9 @@ export function SiteCard({ site, selected, onClick }: { site: SiteCardData; sele
           </div>
         )}
       </div>
-      {site.anomalyReason && (
-        <div style={{ marginTop: 12, padding: "8px 12px", borderRadius: 8, background: C.redBg, border: `1px solid ${C.redBorder}`, fontSize: 12, fontFamily: MONO, color: C.red }}>
-          {site.anomalyReason}
+      {(site.failDeviceCount ?? 0) > 0 && (
+        <div style={{ marginTop: 10, fontFamily: MONO, fontSize: 11, color: C.red }}>
+          DEVICE FAIL：{site.failDeviceCount}
         </div>
       )}
     </button>

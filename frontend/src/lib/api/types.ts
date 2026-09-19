@@ -60,6 +60,7 @@ export interface SiteSummary {
   site: number;
   count: number;
   passRate: number; // 0-1
+  failDeviceCount?: number;
   mean: number;
   stdDev: number;
   isAnomalous: boolean;

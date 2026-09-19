@@ -47,22 +47,11 @@ function AlertCard({ alert, isLatest, flash }: { alert: UnifiedAlert; isLatest: 
         </div>
       </div>
 
-      <div style={{ display: "flex", alignItems: "center", gap: 4, marginBottom: 8, flexWrap: "wrap" }}>
-        <span style={{ fontFamily: MONO, fontSize: 12, color: C.text, fontWeight: 500 }}>{alert.lot}</span>
-        <span style={{ color: C.dim, fontSize: 13 }}>›</span>
-        <span style={{ fontFamily: MONO, fontSize: 12, color: C.text, fontWeight: 500 }}>Wafer {alert.wafer}</span>
-        {t && (
-          <>
-            <span style={{ color: C.dim, fontSize: 13 }}>›</span>
-            <span style={{ fontFamily: MONO, fontSize: 12, color: C.text, fontWeight: 500 }}>Device {formatPid(t.pid)}</span>
-          </>
-        )}
-        {alert.site > 0 && (
-          <>
-            <span style={{ color: C.dim, fontSize: 13 }}>›</span>
-            <span style={{ fontFamily: MONO, fontSize: 12, color: C.text, fontWeight: 500 }}>Site {alert.site}</span>
-          </>
-        )}
+      <div style={{ display: "grid", gridTemplateColumns: t ? "repeat(4, minmax(0, 1fr))" : "repeat(3, minmax(0, 1fr))", gap: 8, marginBottom: 10 }}>
+        <LocationField label="LOT" value={alert.lot} />
+        <LocationField label="WAFER" value={alert.wafer} />
+        {t && <LocationField label="DEVICE" value={formatPid(t.pid)} />}
+        {alert.site > 0 && <LocationField label="SITE" value={String(alert.site)} />}
       </div>
 
       {t ? (
@@ -118,6 +107,15 @@ function AlertCard({ alert, isLatest, flash }: { alert: UnifiedAlert; isLatest: 
       <div style={{ display: "flex", justifyContent: "flex-end" }}>
         <span style={{ fontFamily: MONO, fontSize: 12, color: C.dim }}>{new Date(alert.detectedAt).toLocaleTimeString("en-GB")}</span>
       </div>
+    </div>
+  );
+}
+
+function LocationField({ label, value }: { label: string; value: string }) {
+  return (
+    <div style={{ minWidth: 0, padding: "6px 8px", borderRadius: 7, background: C.surfaceVariant }}>
+      <div style={{ fontFamily: MONO, fontSize: 9, color: C.muted, letterSpacing: "0.08em", marginBottom: 2 }}>{label}</div>
+      <div style={{ fontFamily: MONO, fontSize: 11, color: C.text, fontWeight: 600, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{value}</div>
     </div>
   );
 }

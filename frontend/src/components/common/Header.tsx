@@ -31,9 +31,9 @@ export function Header({
   const pathname = usePathname();
   const pageTitle = PAGE_TITLES[pathname] ?? "";
 
-  const systemStatus: SiteStatus = sites.some((s) => siteStatus(s.passRate, s.isAnomalous) === "error")
+  const systemStatus: SiteStatus = sites.some((s) => siteStatus(s.passRate, s.isAnomalous, s.failDeviceCount) === "error")
     ? "error"
-    : sites.some((s) => siteStatus(s.passRate, s.isAnomalous) === "warning")
+    : sites.some((s) => siteStatus(s.passRate, s.isAnomalous, s.failDeviceCount) === "warning")
       ? "warning"
       : "normal";
   const statusColor = systemStatus === "error" ? C.red : systemStatus === "warning" ? C.yellow : C.green;

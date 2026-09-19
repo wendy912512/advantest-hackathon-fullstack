@@ -36,15 +36,11 @@ export const MONO = "'Roboto Mono', monospace";
 
 export type SiteStatus = "normal" | "warning" | "error";
 
-// 我們的 SiteSummary 只有 isAnomalous（布林值），但設計稿的 SiteCard/Header
-// 需要三段式（normal/warning/error）視覺分級。這裡用 passRate 門檻換算成
-// 三段式狀態，跟後端 build_site_summaries() 的 isAnomalous 是「兩種不同用途
-// 的判斷」：isAnomalous 是後端用 median/MAD 穩健統計判斷「這個 site 的均值
-// 是否明顯偏離其他 site」，這裡的三段式純粹是前端顯示用的良率分級
-// （>=85% 正常、>=80% 警告、<80% 異常）。
-export function siteStatus(passRate: number, isAnomalous?: boolean): SiteStatus {
+// Site 狀態規則：Error（Site imbalance 或 pass rate < 80%）、Warning（pass
+// rate < 85% 或存在 Device Fail）、Normal（pass rate >= 85% 且沒有 Device Fail）。
+export function siteStatus(passRate: number, isAnomalous?: boolean, failDeviceCount = 0): SiteStatus {
   if (isAnomalous || passRate < 0.8) return "error";
-  if (passRate < 0.85) return "warning";
+  if (passRate < 0.85 || failDeviceCount > 0) return "warning";
   return "normal";
 }
 
