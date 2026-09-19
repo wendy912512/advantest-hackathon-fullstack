@@ -12,9 +12,9 @@ python3 -m venv .venv && .venv/bin/pip install -r requirements.txt
 
 前端 `next.config.ts` 已經把 `/api/*` rewrite 到 `http://127.0.0.1:8000/api/*`（可用 `BACKEND_ORIGIN` 環境變數改），所以本機開發不需要另外處理 CORS。
 
-## 本機 CSV Mock
+## 本機 CSV 資料來源
 
-本機啟動時會優先載入 `training/Data/A12345_W01_RawResult.csv` 到 `A12345_W25_RawResult.csv`，並統一提供 Dashboard、Site、Wafer Map 與 Fail Table，避免各畫面使用不同 mock 資料。使用者選擇 `W01`～`W25` 時，API 會依 wafer 回傳對應 CSV 匯入的資料。
+本機啟動時會優先載入 `training/Data/A12345_W01_RawResult.csv` 到 `A12345_W25_RawResult.csv`，並統一提供 Dashboard、Site、Wafer Map 與 Fail Table。使用者選擇 `W01`～`W25` 時，API 會依 wafer 回傳對應 CSV 匯入的資料。
 
 也可以只指定一份檔案：
 
@@ -42,7 +42,7 @@ $env:ADVANTEST_MOCK_CSV = "off"
 
 - `GET /api/thermal/wafers/{lot}/{wafer}`（[`app/thermal.py`](app/thermal.py)）：回傳 6 個 sensor 的 meta（上限、階段 verified/next/future）與每個 device 的預測值、實測值、誤差、預測狀態（normal/warning/critical/pending）、判定。即時 wafer 未輪到的 sensor 不預測、未實測的 sensor 不回傳實際值。
 - `POST /api/internal/thermal-progress {"completed": n}`：CSV 匯入時所有數值一次到齊，用這個模擬「即時 wafer 已完成幾個 sensor」（預設 3：sensor1~3 已實測、預測 sensor4）。串 ONEAPI 後應由收到的 sensor 量測事件推算。
-- `python scripts/build_thermal_fixture.py <RawResult.csv>` 產生前端 mock 備援用的 `frontend/src/lib/api/thermalFixture.json`（真實 W01 資料 + 後端預測結果）。
+- `python scripts/build_thermal_fixture.py <RawResult.csv>` 產生前端 CSV-derived fallback 用的 fixture（真實 W01 資料 + 後端預測結果）。
 
 ### ⚠️ 目前的預測模型只是 baseline，請換成正式模型
 

@@ -1,8 +1,7 @@
-"""Build frontend fixtures from RawResult CSV data.
+"""Build frontend fallback fixtures from RawResult CSV data.
 
-The frontend mock fallback (used when the backend has no data) replays this
-file, so the demo shows REAL sensor values and REAL leave-one-out predictions
-instead of invented numbers.
+When the API is temporarily unavailable, the frontend can replay these
+CSV-derived values without inventing synthetic test results.
 
     cd backend && python scripts/build_thermal_fixture.py \
         ../training/Data/A12345_W01_RawResult.csv
@@ -62,12 +61,7 @@ out.write_text(json.dumps(fixture, ensure_ascii=False, separators=(",", ":")), e
 print("wrote", out, len(fixture["devices"]), "devices")
 
 fails = runtime_state.wafer_fails(info["lot"], "W01")
-fail_out = out.parent / "failFixture.json"
-fail_out.write_text(
-    json.dumps({"sourceCsv": Path(csv_path).name, **fails}, ensure_ascii=False, separators=(",", ":")),
-    encoding="utf-8",
-)
-print("wrote", fail_out, len(fails["rows"]), "fail rows,", len(fails["events"]), "events")
+print("loaded", Path(csv_path).name, len(fails["rows"]), "fail rows,", len(fails["events"]), "events")
 
 if len(csv_paths) > 1:
     fail_fixtures = {}

@@ -1,25 +1,24 @@
 import type { DeviceTestResult, SiteSummary } from "./types";
 import { apiClient } from "./client";
-import { generateMockResults, summarizeBySite } from "./mock";
-import { fetchWithMockFallback } from "./withFallback";
+import { fetchWithFallback } from "./withFallback";
 
 export async function fetchSiteSummaries(): Promise<SiteSummary[]> {
-  return fetchWithMockFallback(
+  return fetchWithFallback(
     async () => {
       const { data } = await apiClient.get<SiteSummary[]>("/sites");
       return data;
     },
-    () => summarizeBySite(generateMockResults()),
+    () => [],
   );
 }
 
 export async function fetchSiteResults(site: number): Promise<DeviceTestResult[]> {
-  return fetchWithMockFallback(
+  return fetchWithFallback(
     async () => {
       const { data } = await apiClient.get<DeviceTestResult[]>(`/sites/${site}/results`);
       return data;
     },
-    () => generateMockResults().filter((r) => r.device.site === site),
+    () => [],
   );
 }
 

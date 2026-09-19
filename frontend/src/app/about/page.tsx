@@ -106,8 +106,8 @@ export default function AboutPage() {
         </CardHeader>
         <CardContent className="space-y-2 text-sm text-muted-foreground">
           <p>
-            後端 ONEAPI 服務尚未串接，本網站所有頁面皆使用 Mock 資料層（
-            <code>src/lib/api/mock.ts</code>）模擬上述事件產生的結果，資料結構已對齊真實事件欄位，方便後端就緒後直接替換。
+            本網站優先使用 FastAPI；後端暫時無法連線時，僅對 Wafer Map、Fail Table 與 Thermal
+            保留由訓練 CSV 產生的 fallback，其他頁面顯示空結果，不建立虛構測試資料。
           </p>
           <p>
             後端建置規格與 API 對照表請見團隊 Notion「後端建立指引」文件。

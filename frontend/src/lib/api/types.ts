@@ -3,7 +3,7 @@
 // ONEAPI 是事件驅動架構：consumeData() 會依序收到 DATA_TYP_PRODUCTION_TESTEND
 // （每個 site 的 bin/Part ID/座標/測試時間）與 DATA_TYP_MEASURED_PARAMETRIC
 // （實際量測值）等「不同的事件」，兩者不是同一筆資料。DeviceTestResult 把它們
-// 合併成一筆，是為了前端/mock 方便；後端需要用 lot+wafer+site+test 當 key
+// 合併成一筆，是前端呈現用的 view model；後端需要用 lot+wafer+site+test 當 key
 // 暫存量測事件，等對應的 TESTEND 事件抵達再組裝輸出。詳見 Notion「後端建立指引」。
 //
 // 欄位對照真實 ONEAPI 回傳（依實際 py-app.log 觀察，ACS ONEAPI 3.3.0）：

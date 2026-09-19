@@ -1,15 +1,15 @@
 import type { WaferMapData } from "./types";
 import { apiClient } from "./client";
-import { generateWaferMapData } from "./mock";
-import { fetchWithMockFallback } from "./withFallback";
+import { getCsvWaferMap } from "./csvFallback";
+import { fetchWithFallback } from "./withFallback";
 
 export async function fetchWaferMapData(lot: string, wafer: string): Promise<WaferMapData | undefined> {
-  return fetchWithMockFallback(
+  return fetchWithFallback(
     async () => {
       const { data } = await apiClient.get<WaferMapData>(`/lots/${lot}/wafers/${wafer}`);
       return data;
     },
-    () => generateWaferMapData(lot, wafer),
+    () => getCsvWaferMap(lot, wafer),
     (data) => !data || data.points.length === 0,
   );
 }

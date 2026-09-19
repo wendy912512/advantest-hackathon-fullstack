@@ -6,7 +6,7 @@ export function SiteBoxplot({ sites }: { sites: SiteSummary[] }) {
   const H = 160;
   const pad = 40;
   const slotW = (W - pad * 2) / Math.max(sites.length, 1);
-  // 優先用後端/mock 算出來的真正五數彙總（boxplot），只有在資料不足以算出
+  // 優先使用後端算出的真正五數彙總（boxplot），只有在資料不足以算出
   // 分位數時才退回常態分布近似值。
   const dists = sites.map((s) => s.boxplot ?? estimateBoxplotDist(s.mean, s.stdDev));
   const allVals = dists.flat();
