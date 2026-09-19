@@ -298,7 +298,11 @@ class RuntimeState:
             for entry in site_entries:
                 values = [result.value for result in entry.results if result.value is not None and sensor_index(result) is None]
                 if values:
-                    points.append({"timestamp": entry.device.testTime, "value": mean(values)})
+                    points.append({
+                        "timestamp": entry.device.testTime,
+                        "wafer": entry.device.wafer,
+                        "value": mean(values),
+                    })
             baseline = [point["value"] for point in points[:10]]
             baseline_mean = mean(baseline)
             baseline_std_dev = std_dev(baseline)
