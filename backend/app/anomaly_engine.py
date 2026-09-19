@@ -306,27 +306,10 @@ class AnomalyEngine:
             ]
             down_runs = self._consecutive_changes(changes, direction="down")
             up_runs = self._consecutive_changes(changes, direction="up")
-            # Require a final recovery in the opposite direction. This keeps a
-            # continuously shrinking/spreading wafer from being mislabeled as
-            # a localized segment trend.
-            down_recovery = (
-                changes[-1] >= self.config.segment_profile_recovery
-                and segments[-1] < segments[0]
-            )
-            up_recovery = (
-                changes[-1] <= -self.config.segment_profile_recovery
-                and segments[-1] > segments[0]
-            )
             direction = None
-            if (
-                down_runs >= self.config.segment_profile_confirmations
-                and down_recovery
-            ):
+            if down_runs >= self.config.segment_profile_confirmations:
                 direction = "down"
-            elif (
-                up_runs >= self.config.segment_profile_confirmations
-                and up_recovery
-            ):
+            elif up_runs >= self.config.segment_profile_confirmations:
                 direction = "up"
             if direction is not None:
                 alerts.append(Alert(

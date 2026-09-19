@@ -32,5 +32,4 @@ class RuleConfig:
     segment_profile_count: int = 4
     segment_profile_change: float = 0.15
     segment_profile_confirmations: int = 2
-    segment_profile_recovery: float = 0.10
     alert_cooldown_seconds: float = 30.0
