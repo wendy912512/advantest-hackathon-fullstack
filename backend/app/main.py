@@ -138,6 +138,13 @@ def ingest_measurement(event: Measurement) -> None:
     runtime_state.record_measurement(event)
 
 
+@app.post("/api/internal/measurements", status_code=204)
+def ingest_measurements(events: list[Measurement]) -> None:
+    """Receive one OneAPI callback's measurements in a single request."""
+    for event in events:
+        runtime_state.record_measurement(event)
+
+
 @app.post("/api/internal/test-end", status_code=204)
 def ingest_test_end(event: DeviceTestResult) -> None:
     runtime_state.record_test_end(event)

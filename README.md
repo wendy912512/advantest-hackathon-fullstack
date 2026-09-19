@@ -70,6 +70,62 @@ py -m uvicorn app.main:app --reload --port 8080
 
 官方 RawResult CSV 每顆 Device 有數千個測項；本機備援載入時，儀表板預設保留 24 個有效數值測項，避免瀏覽器回傳過大。完整 CSV 可保留在 `backend\data\` 供後續分析或模型使用。
 
+## ACS debugger：OneAPI 串接測試
+
+本段只測試 **OneAPI callback → FastAPI → 網頁 API**；不需要將 CSV、`backend\data\`、`.venv` 或 `node_modules` 放進 VM。
+
+在 debugger VM 建立 `/home/debugger/project/rtid-backend/`，放入下列檔案：
+
+```text
+rtid-backend/
+├── app/                     # 整個 backend/app 資料夾
+└── requirements.txt
+```
+
+啟動 FastAPI：
+
+```bash
+cd /home/debugger/project/rtid-backend
+python3 -m venv .venv
+source .venv/bin/activate
+python3 -m pip install -r requirements.txt
+python3 -m uvicorn app.main:app --host 127.0.0.1 --port 8080
+```
+
+先確認 `curl http://127.0.0.1:8080/health` 回傳 `{"status":"ok"}`。ACS 模式不要設定 `RTDI_USE_CSV_FALLBACK`。
+
+接著在官方 OneAPI `sample.py` 加入轉接器。官方 sample 已經有 `toSite`，只需增加：
+
+```python
+# sample.py 的 import 區塊
+sys.path.insert(0, "/home/debugger/project/rtid-backend")
+from app.oneapi_bridge import OneApiHttpBridge
+
+# SampleMonitor.__init__()
+self.rtdi = OneApiHttpBridge()
+```
+
+在下列既有 callback 函式的最後一行，各加入一行：
+
+```python
+# consumeLotStart(self, data)
+self.rtdi.on_lot_start(data)
+
+# consumeWaferStart(self, data)
+self.rtdi.on_wafer_start(data)
+
+# consumeParametricTest(self, data)
+self.rtdi.on_parametric(data, toSite)
+
+# consumeMultiParametric(self, data)
+self.rtdi.on_multi_parametric(data, toSite)
+
+# consumeTestEnd(self, data)
+self.rtdi.on_test_end(data, toSite)
+```
+
+`oneapi_bridge.py` 使用背景佇列將事件依序送至本機 FastAPI，不會因網頁服務暫時無法回應而中斷測試 callback。FastAPI 與 `sample.py` 必須在同一台 debugger VM 上執行；若改成不同主機，才設定 `RTDI_API_BASE_URL` 為 FastAPI 的實際位址。
+
 ## 專案結構
 
 ```
