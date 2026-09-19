@@ -15,6 +15,8 @@ class RuleConfig:
     site_sigma: float = 3.0
     site_yield_difference: float = 0.10
     trend_min_points: int = 8
+    # Recalculate trend after every complete device.
+    trend_batch_size: int = 1
     trend_r2: float = 0.70
     trend_confirmations: int = 2
     stdev_window: int = 8
@@ -25,4 +27,10 @@ class RuleConfig:
     aggregate_stdev_normalized_slope: float = 0.00001
     profile_stdev_r2: float = 0.2
     profile_stdev_normalized_slope: float = 0.0003
+    # Segment profile stdev changes: four device-order segments, with two
+    # consecutive changes required to avoid single-transition noise.
+    segment_profile_count: int = 4
+    segment_profile_change: float = 0.15
+    segment_profile_confirmations: int = 2
+    segment_profile_recovery: float = 0.10
     alert_cooldown_seconds: float = 30.0

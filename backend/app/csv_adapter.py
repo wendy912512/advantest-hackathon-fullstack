@@ -116,14 +116,25 @@ def read_training_profile(path: str | Path, tester_id: str = "testerA") -> list[
         match = re.match(r"\d+_(Main\.subflow\d+)", header[column])
         if match:
             groups.setdefault(match.group(1), []).append(column)
+    segment_count = 4
+    segment_size = len(data_rows) // segment_count
     for group, columns in groups.items():
+        segment_stdevs_by_segment: list[list[float]] = [
+            [] for _ in range(segment_count)
+        ]
         for sequence_index, column in enumerate(columns):
-            column_values = []
-            for row in data_rows:
+            column_values: list[float] = []
+            segment_values_by_segment: list[list[float]] = [
+                [] for _ in range(segment_count)
+            ]
+            for row_index, row in enumerate(data_rows):
                 try:
-                    column_values.append(float(row[column]))
+                    value = float(row[column])
                 except (TypeError, ValueError):
                     continue
+                column_values.append(value)
+                if segment_size >= 8 and row_index < segment_count * segment_size:
+                    segment_values_by_segment[row_index // segment_size].append(value)
             if len(column_values) < 8:
                 continue
             first = data_rows[0]
@@ -146,6 +157,29 @@ def read_training_profile(path: str | Path, tester_id: str = "testerA") -> list[
                 value=statistics.pstdev(column_values),
                 metadata={"profile_group": group, "aggregate_series": "stdev"},
             ))
+
+            if segment_size >= 8:
+                for segment_index, segment_values in enumerate(segment_values_by_segment):
+                    if len(segment_values) >= 8:
+                        segment_stdevs_by_segment[segment_index].append(
+                            statistics.pstdev(segment_values)
+                        )
+
+        # Keep a second, device-order-aware profile series.  Each point is the
+        # mean cross-device stdev within one segment; the engine later requires
+        # multiple consecutive segment changes before raising an alert.
+        if segment_size >= 8:
+            for segment_index in range(segment_count):
+                segment_stdevs = segment_stdevs_by_segment[segment_index]
+                if not segment_stdevs:
+                    continue
+                segment_common = {**common_profile, "touchdown_index": segment_index}
+                measurements.append(Measurement(
+                    **segment_common,
+                    test_name=group,
+                    value=statistics.fmean(segment_stdevs),
+                    metadata={"profile_group": group, "aggregate_series": "segment_stdev"},
+                ))
     return measurements
 
 

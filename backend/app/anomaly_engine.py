@@ -167,10 +167,11 @@ class AnomalyEngine:
         for test_name, observations in by_test.items():
             ordered = sorted(observations, key=lambda item: (item.touchdown_index is None, item.touchdown_index or 0))
             samples = [item.value for item in ordered]
-            if len(samples) < self.config.trend_min_points:
+            trend_samples = self._complete_prefix(samples)
+            if len(trend_samples) < self.config.trend_min_points:
                 continue
-            slope, r_squared = linear_regression(samples)
-            mean_value = average(samples)
+            slope, r_squared = linear_regression(trend_samples)
+            mean_value = average(trend_samples)
             scale = abs(mean_value) or 1.0
             normalized_slope = slope / scale
             if r_squared >= self.config.trend_r2 and abs(normalized_slope) >= 0.001:
@@ -185,7 +186,14 @@ class AnomalyEngine:
                         lot_id=first.lot_id,
                         wafer_id=first.wafer_id,
                         test_name=test_name,
-                        evidence={"slope": slope, "normalizedSlope": normalized_slope, "r2": r_squared, "points": len(samples)},
+                        evidence={
+                            "slope": slope,
+                            "normalizedSlope": normalized_slope,
+                            "r2": r_squared,
+                            "points": len(trend_samples),
+                            "batchSize": self.config.trend_batch_size,
+                            "rawPoints": len(samples),
+                        },
                     )
                 )
             if len(samples) < self.config.stdev_window + self.config.trend_min_points - 1:
@@ -211,6 +219,21 @@ class AnomalyEngine:
                 )
         return alerts
 
+    def _complete_prefix(self, values: list[float]) -> list[float]:
+        """Use the largest complete cumulative checkpoint for trend analysis.
+
+        For a step of five, analysis is performed on values[:5], values[:10],
+        values[:15], ... as new devices arrive. At a query point between
+        checkpoints, the incomplete tail is ignored. Dispersion calculations
+        intentionally continue to use the original per-device ``values``,
+        including the existing rolling-window behavior.
+        """
+        size = self.config.trend_batch_size
+        if size < 1:
+            return []
+        complete = len(values) - (len(values) % size)
+        return values[:complete]
+
     def _aggregate_trend_alerts(self, values: list[Measurement]) -> list[Alert]:
         """Detect the labeled wafer-level mean/stdev drift over device order.
 
@@ -231,7 +254,10 @@ class AnomalyEngine:
         for group, series in grouped.items():
             mean_groups = series.get("mean", {})
             if group == "__DEVICE__" and len(mean_groups) >= self.config.trend_min_points:
-                means = [average(mean_groups[index]) for index in sorted(mean_groups)]
+                device_means = [average(mean_groups[index]) for index in sorted(mean_groups)]
+                means = self._complete_prefix(device_means)
+                if len(means) < self.config.trend_min_points:
+                    continue
                 mean_slope, mean_r2 = linear_regression(means)
                 normalized_mean_slope = mean_slope / (abs(average(means)) or 1.0)
                 if mean_r2 >= 0.05 and abs(normalized_mean_slope) >= self.config.aggregate_mean_normalized_slope:
@@ -242,21 +268,90 @@ class AnomalyEngine:
                         message=f"Wafer Mean Trend {'Up' if is_up else 'Down'}：slope={mean_slope:.4g}, R²={mean_r2:.2f}",
                         tester_id=first.tester_id, lot_id=first.lot_id, wafer_id=first.wafer_id,
                         test_name=group,
-                        evidence={"slope": mean_slope, "normalizedSlope": normalized_mean_slope, "r2": mean_r2, "points": len(means)},
+                        evidence={
+                            "slope": mean_slope,
+                            "normalizedSlope": normalized_mean_slope,
+                            "r2": mean_r2,
+                            "points": len(means),
+                            "batchSize": self.config.trend_batch_size,
+                            "rawPoints": len(device_means),
+                        },
                     ))
             stdev_groups = series.get("stdev", {})
             if group == "__DEVICE__" or len(stdev_groups) < self.config.trend_min_points:
+                pass
+            else:
+                stdevs = [average(stdev_groups[index]) for index in sorted(stdev_groups)]
+                stdev_slope, stdev_r2 = linear_regression(stdevs)
+                normalized_stdev_slope = stdev_slope / (abs(average(stdevs)) or 1.0)
+                if stdev_r2 >= self.config.profile_stdev_r2 and abs(normalized_stdev_slope) >= self.config.profile_stdev_normalized_slope:
+                    alerts.append(Alert(
+                        anomaly_type=AnomalyType.STDEV_TREND_UP if stdev_slope > 0 else AnomalyType.STDEV_TREND_DOWN,
+                        severity="warning",
+                        message=f"{group} Stdev Trend {'Up' if stdev_slope > 0 else 'Down'}：slope={stdev_slope:.4g}, R²={stdev_r2:.2f}",
+                        tester_id=first.tester_id, lot_id=first.lot_id, wafer_id=first.wafer_id,
+                        test_name=group,
+                        evidence={"slope": stdev_slope, "normalizedSlope": normalized_stdev_slope, "r2": stdev_r2, "window": 1},
+                    ))
+
+            segment_groups = series.get("segment_stdev", {})
+            if len(segment_groups) < self.config.segment_profile_count:
                 continue
-            stdevs = [average(stdev_groups[index]) for index in sorted(stdev_groups)]
-            stdev_slope, stdev_r2 = linear_regression(stdevs)
-            normalized_stdev_slope = stdev_slope / (abs(average(stdevs)) or 1.0)
-            if stdev_r2 >= self.config.profile_stdev_r2 and abs(normalized_stdev_slope) >= self.config.profile_stdev_normalized_slope:
+            segments = [average(segment_groups[index]) for index in sorted(segment_groups)]
+            if len(segments) < self.config.segment_profile_count:
+                continue
+            changes = [
+                (current - previous) / (abs(previous) or 1.0)
+                for previous, current in zip(segments, segments[1:])
+            ]
+            down_runs = self._consecutive_changes(changes, direction="down")
+            up_runs = self._consecutive_changes(changes, direction="up")
+            # Require a final recovery in the opposite direction. This keeps a
+            # continuously shrinking/spreading wafer from being mislabeled as
+            # a localized segment trend.
+            down_recovery = (
+                changes[-1] >= self.config.segment_profile_recovery
+                and segments[-1] < segments[0]
+            )
+            up_recovery = (
+                changes[-1] <= -self.config.segment_profile_recovery
+                and segments[-1] > segments[0]
+            )
+            direction = None
+            if (
+                down_runs >= self.config.segment_profile_confirmations
+                and down_recovery
+            ):
+                direction = "down"
+            elif (
+                up_runs >= self.config.segment_profile_confirmations
+                and up_recovery
+            ):
+                direction = "up"
+            if direction is not None:
                 alerts.append(Alert(
-                    anomaly_type=AnomalyType.STDEV_TREND_UP if stdev_slope > 0 else AnomalyType.STDEV_TREND_DOWN,
+                    anomaly_type=AnomalyType.STDEV_TREND_DOWN if direction == "down" else AnomalyType.STDEV_TREND_UP,
                     severity="warning",
-                    message=f"{group} Stdev Trend {'Up' if stdev_slope > 0 else 'Down'}：slope={stdev_slope:.4g}, R²={stdev_r2:.2f}",
+                    message=f"{group} 分段 Stdev Trend {'Down' if direction == 'down' else 'Up'}：segments={[round(value, 6) for value in segments]}",
                     tester_id=first.tester_id, lot_id=first.lot_id, wafer_id=first.wafer_id,
                     test_name=group,
-                    evidence={"slope": stdev_slope, "normalizedSlope": normalized_stdev_slope, "r2": stdev_r2, "window": 1},
+                    evidence={
+                        "segments": segments,
+                        "relativeChanges": changes,
+                        "changeThreshold": self.config.segment_profile_change,
+                        "confirmations": self.config.segment_profile_confirmations,
+                    },
                 ))
         return alerts
+
+    def _consecutive_changes(self, changes: list[float], *, direction: str) -> int:
+        threshold = self.config.segment_profile_change
+        target = (lambda value: value <= -threshold) if direction == "down" else (lambda value: value >= threshold)
+        longest = current = 0
+        for change in changes:
+            if target(change):
+                current += 1
+                longest = max(longest, current)
+            else:
+                current = 0
+        return longest
