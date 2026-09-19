@@ -1,6 +1,11 @@
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 
+// 這一頁是系統架構說明文件，不屬於這次 /reference 介面改版的範圍（reference
+// 設計稿沒有對應頁面），所以維持原本的 shadcn/ui 風格。全域的 Header/
+// Sidebar/警告欄已經在 RootLayout 統一套用（見 AppChrome.tsx），這頁不用
+// 再自己處理導覽。
+
 const EVENT_FLOW = [
   "LOTSTART",
   "WAFERSTART",

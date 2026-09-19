@@ -1,4 +1,7 @@
 import type {
+  SensorStage,
+  ThermalStatus,
+  ThermalVerdict,
   BinBreakdown,
   DashboardSnapshot,
   DeviceInfo,
@@ -6,17 +9,19 @@ import type {
   FailureExplanation,
   LotListItem,
   LotSummary,
-  MachineNotification,
   SiteSummary,
-  TemperaturePrediction,
-  TemperatureSnapshot,
   TrendAlert,
   TrendPoint,
   TrendSeries,
+  WaferFails,
+  WaferThermal,
   WaferListItem,
   WaferMapData,
   WaferPoint,
 } from "./types";
+import { binLabel } from "@/lib/binLabels";
+import thermalFixture from "./thermalFixture.json";
+import failFixture from "./failFixture.json";
 
 // 模擬 ONEAPI consumeData() 收到的即時測試資料。
 // 後端串接後，此檔案可整份移除，改由 lib/api/dashboard.ts、lib/api/sites.ts 呼叫真實 API。
@@ -36,35 +41,23 @@ const TEST_UNIT = "mA";
 const TEST_LOW_LIMIT = 12.1;
 const TEST_HIGH_LIMIT = 30.0;
 
-// Bin 對照表（demo 假資料，真實對照要工程師提供，見 Notion 對齊表）
-const SOFT_BIN_LABELS: Record<number, string> = {
-  1: "Pass",
-  2: "Leakage Fail",
-  3: "Timing Fail",
-  4: "Functional Fail",
-};
+// Bin 對照表移到 @/lib/binLabels，跟前端 UI 元件（LotBrowser、SiteDrawer）與
+// 後端 backend/app/bin_labels.py 共用同一份，避免有的地方顯示真實原因、
+// 有的地方顯示裸的「Bin 2」數字。
 // 官方訓練資料集（TrainDataInfo.txt）證實的真實門檻：25 片 wafer 中，
 // W3（67.5%）與 W9（68.8%）被標記為「Low yield which yield is low than 80」，
 // 其餘正常 wafer 良率都在 80% 以上，所以 80% 是官方認定的門檻，不是猜的。
 const SITE_PASS_RATE_THRESHOLD = 0.8;
 const BIN_RATIO_ALERT_THRESHOLD = 0.05; // 單一失敗 bin 佔比超過 5% 視為疑似系統性問題（demo 用）
-// site mean 偏離整體超過此值視為 imbalance（demo 用，需與工程師確認）。
-// 注意：整體平均值是 4 個 site 的 pooled mean，異常 site 本身會把 pooled mean 拉偏，
-// 所以這個閾值要大於「單一異常 site 導致其他正常 site 被拉偏的量」，見 generateDevice()
-// 裡 IMBALANCED_SITE 的偏移量（+8.5）：其他 3 個正常 site 大約會被拉偏 8.5/4 ≈ 2.1，
-// 因此閾值需明顯大於 2.1，這裡取 4。
-export const IMBALANCE_DEVIATION_THRESHOLD = 4;
+// Site imbalance 判斷邏輯（median + MAD 穩健統計）在 summarizeBySite() 裡，
+// 不再用固定的絕對偏差門檻——舊版「偏離 pooled mean 超過某個常數」的做法
+// 有 pooled mean/threshold 被異常值自己拉偏的問題，詳見 summarizeBySite()
+// 上方註解與 backend/app/state.py 的對應修正。
 
 // Wafer map 參數（demo 用，真實晶圓尺寸/座標系統需與工程師確認，見 Notion 對齊表）
 const WAFER_RADIUS = 20;
 const WAFER_EDGE_RING_RATIO = 0.78; // 超過此比例半徑視為「邊緣」，demo 用來模擬 edge die effect
 
-// 測試結果解釋器：bin 對應的失敗原因說明（demo 用規則式文字，真實原因需由工程師/模型判斷提供）
-const BIN_CAUSE_HINTS: Record<number, string> = {
-  2: "疑似漏電流（leakage）超出規格，常見原因為製程缺陷或 ESD 損傷",
-  3: "疑似時序（timing）不符合，常見原因為時脈偏移或訊號完整性問題",
-  4: "疑似功能性測試失敗，常見原因為邏輯錯誤或圖案敏感缺陷",
-};
 
 // 趨勢判斷規則參數（demo 用固定值，真實規則需與後端/工程師確認，見 Notion 對齊表）
 const TREND_BASELINE_WINDOW = 10; // 前 N 點做為 baseline，算 mean/std
@@ -98,6 +91,37 @@ function stdDev(values: number[]) {
   return Math.sqrt(variance);
 }
 
+function median(values: number[]) {
+  const ordered = [...values].sort((a, b) => a - b);
+  const mid = Math.floor(ordered.length / 2);
+  return ordered.length % 2 ? ordered[mid] : (ordered[mid - 1] + ordered[mid]) / 2;
+}
+
+// 跟 numpy 預設的 'linear' method 一致的線性內插百分位數，跟後端
+// backend/app/state.py 的 percentile() 用同一種算法，確保 mock 與真實
+// 後端的箱型圖數字口徑一致。
+function percentile(sortedValues: number[], fraction: number) {
+  if (sortedValues.length === 0) return 0;
+  if (sortedValues.length === 1) return sortedValues[0];
+  const index = fraction * (sortedValues.length - 1);
+  const lower = Math.floor(index);
+  const upper = Math.min(lower + 1, sortedValues.length - 1);
+  const weight = index - lower;
+  return sortedValues[lower] + (sortedValues[upper] - sortedValues[lower]) * weight;
+}
+
+function fiveNumberSummary(values: number[]): [number, number, number, number, number] | undefined {
+  if (values.length < 2) return undefined;
+  const ordered = [...values].sort((a, b) => a - b);
+  return [
+    ordered[0],
+    percentile(ordered, 0.25),
+    percentile(ordered, 0.5),
+    percentile(ordered, 0.75),
+    ordered[ordered.length - 1],
+  ];
+}
+
 let sequence = 0;
 
 function generateDevice(site: number, lot: string, wafer: string, rand: () => number): DeviceTestResult {
@@ -120,11 +144,17 @@ function generateDevice(site: number, lot: string, wafer: string, rand: () => nu
     lot,
     wafer,
     site,
-    x: Math.floor(rand() * 40) - 20,
-    y: Math.floor(rand() * 40) - 20,
     pf: pass ? "PASS" : "FAIL",
     softBin: pass ? 1 : 2 + Math.floor(rand() * 3),
     hardBin: pass ? 1 : 2 + Math.floor(rand() * 3),
+    // 座標用極座標均勻取樣在晶圓圓盤內（半徑 WAFER_RADIUS），跟
+    // generateWaferDeviceResults() 同一種取樣方式，這樣即時監控資料集也能
+    // 拿去畫 wafer map 而不會有點跑到圓外面。
+    ...(() => {
+      const angle = rand() * 2 * Math.PI;
+      const r = WAFER_RADIUS * Math.sqrt(rand());
+      return { x: Math.round(r * Math.cos(angle)), y: Math.round(r * Math.sin(angle)) };
+    })(),
     testTime: new Date(Date.now() - Math.floor(rand() * 60_000)).toISOString(),
   };
 
@@ -149,18 +179,30 @@ function generateDevice(site: number, lot: string, wafer: string, rand: () => nu
 // 這是「目前正在測試中」的即時監控資料（Dashboard/Site/趨勢/解釋器用），跟
 // LOT_DEFINITIONS 裡「已完成、可瀏覽歷史」的批次是分開的兩組資料，故意用不同的
 // lot id（LOT-2026-0093）避免混淆——不是同一批貨。
+export const LIVE_LOT = "LOT-2026-0093";
+export const LIVE_WAFER = "W07";
+
 export function generateMockResults(count = 240): DeviceTestResult[] {
   const rand = seededRandom(42);
-  const lot = "LOT-2026-0093";
-  const wafer = "W07";
   const results: DeviceTestResult[] = [];
   for (let i = 0; i < count; i += 1) {
     const site = (i % SITE_COUNT) + 1;
-    results.push(generateDevice(site, lot, wafer, rand));
+    results.push(generateDevice(site, LIVE_LOT, LIVE_WAFER, rand));
   }
   return results;
 }
 
+// Site imbalance 判斷：比較「各 site 的均值」彼此之間的分布，用 median +
+// MAD（median absolute deviation，乘 1.4826 校正成與常態分布 stdDev 同尺度）
+// 這種穩健統計量，而不是拿單一 site 均值去跟「所有原始量測值的 pooled
+// mean/stdDev」比較。後者的問題：異常 site 自己的偏移與高變異會同時拉動
+// pooled mean 與 pooled stdDev，讓判斷門檻自己被異常值撐大，導致真正異常
+// 的 site 反而測不出來（在後端 backend/app/state.py 修正前實際發生過這個
+// bug，用這裡的 demo 數值算過：偏移 8.5mA/std 1.8 vs baseline 19.5mA/std
+// 0.3，pooled stdDev 會被撐到 ~3.8，3σ 門檻 ~11.4mA > 實際偏差 6.4mA，等於
+// 測不出來）。median/MAD 只用「4 個 site 的均值」本身的分布來判斷，單一
+// 離群 site 幾乎不會拉動中位數，這個邏輯跟 backend/app/state.py 的
+// build_site_summaries() 是同一套，維持前後端行為一致。
 export function summarizeBySite(results: DeviceTestResult[]): SiteSummary[] {
   const bySite = new Map<number, DeviceTestResult[]>();
   for (const r of results) {
@@ -169,28 +211,42 @@ export function summarizeBySite(results: DeviceTestResult[]): SiteSummary[] {
     bySite.set(r.device.site, list);
   }
 
-  const summaries: SiteSummary[] = [];
-  const overallValues = results.flatMap((r) => r.results.map((res) => res.value ?? 0));
-  const overallMean = mean(overallValues);
-
-  for (const [site, list] of Array.from(bySite.entries()).sort((a, b) => a[0] - b[0])) {
+  const siteValues = new Map<number, number[]>();
+  const siteMeans = new Map<number, number>();
+  for (const [site, list] of bySite) {
     const values = list.flatMap((r) => r.results.map((res) => res.value ?? 0));
+    siteValues.set(site, values);
+    siteMeans.set(site, mean(values));
+  }
+
+  const meansList = Array.from(siteMeans.values());
+  const robustCenter = meansList.length >= 3 ? median(meansList) : mean(meansList);
+  const mad =
+    meansList.length >= 3 ? median(meansList.map((m) => Math.abs(m - robustCenter))) : 0;
+  const scaledMad = Math.max(mad * 1.4826, 1e-6);
+
+  const summaries: SiteSummary[] = [];
+  for (const [site, list] of Array.from(bySite.entries()).sort((a, b) => a[0] - b[0])) {
+    const values = siteValues.get(site) ?? [];
     const passCount = list.filter((r) => r.device.pf === "PASS").length;
-    const siteMean = mean(values);
+    const failDeviceCount = list.filter((r) => r.device.pf === "FAIL").length;
+    const siteMean = siteMeans.get(site) ?? 0;
     const siteStd = stdDev(values);
-    const deviation = Math.abs(siteMean - overallMean);
-    const isAnomalous = deviation > IMBALANCE_DEVIATION_THRESHOLD;
+    const deviation = Math.abs(siteMean - robustCenter);
+    const isAnomalous = values.length >= 5 && meansList.length >= 3 && deviation > 3 * scaledMad;
 
     summaries.push({
       site,
       count: list.length,
       passRate: passCount / list.length,
+      failDeviceCount,
       mean: Number(siteMean.toFixed(4)),
       stdDev: Number(siteStd.toFixed(4)),
       isAnomalous,
       anomalyReason: isAnomalous
-        ? `Site unbalance：平均值偏離整體 ${deviation.toFixed(3)}`
+        ? `Site unbalance：平均值偏離其他 site 中位數 ${deviation.toFixed(3)}`
         : undefined,
+      boxplot: fiveNumberSummary(values),
     });
   }
 
@@ -403,7 +459,7 @@ function binBreakdown(devices: DeviceInfo[], pick: (d: DeviceInfo) => number): B
   return Array.from(counts.entries())
     .map(([bin, count]) => ({
       bin,
-      label: SOFT_BIN_LABELS[bin] ?? `Bin ${bin}`,
+      label: binLabel(bin),
       count,
       ratio: count / devices.length,
     }))
@@ -589,6 +645,31 @@ export function generateLotList(): LotListItem[] {
 }
 
 export function generateLotSummary(lot: string): LotSummary | undefined {
+  // 跟 generateWaferMapData() 同樣的問題：即時監控的 lot（LIVE_LOT）不在
+  // LOT_DEFINITIONS 裡，要另外處理，否則 Wafer Browser 頁選到目前即時的
+  // lot 時會一直卡在「載入批次資料中」（fetchLotSummary 拿不到任何資料，
+  // 也沒有 mock 備援）。
+  if (lot === LIVE_LOT) {
+    const results = generateMockResults();
+    const devices = results.map((r) => r.device);
+    const siteSummaries = summarizeBySite(results);
+    const passCount = devices.filter((d) => d.pf === "PASS").length;
+    const passRate = passCount / devices.length;
+    const softBinBreakdown = binBreakdown(devices, (d) => d.softBin);
+    const hardBinBreakdown = binBreakdown(devices, (d) => d.hardBin);
+    return {
+      lot,
+      waferCount: 1,
+      totalDevices: devices.length,
+      passRate,
+      siteSummaries,
+      softBinBreakdown,
+      hardBinBreakdown,
+      suspectIssues: siteSummaries.filter((s) => s.isAnomalous).map((s) => s.anomalyReason ?? `Site ${s.site} 異常`),
+      wafers: [{ wafer: LIVE_WAFER, totalDevices: devices.length, passRate, hasIssue: passRate < SITE_PASS_RATE_THRESHOLD }],
+    };
+  }
+
   const def = LOT_DEFINITIONS.find((l) => l.lot === lot);
   if (!def) return undefined;
 
@@ -643,6 +724,26 @@ export function generateLotSummary(lot: string): LotSummary | undefined {
 }
 
 export function generateWaferMapData(lot: string, wafer: string): WaferMapData | undefined {
+  // 「目前正在測試中」的即時資料集（LIVE_LOT/LIVE_WAFER）不在 LOT_DEFINITIONS
+  // 裡（那是給歷史批次瀏覽用的固定資料集），所以要另外處理，否則 Sites 頁
+  // 預設顯示的就是即時 lot/wafer，會拿不到 wafer map。
+  if (lot === LIVE_LOT && wafer === LIVE_WAFER) {
+    const results = generateMockResults();
+    return {
+      lot,
+      wafer,
+      radius: WAFER_RADIUS,
+      points: results.map((r) => ({
+        pid: r.device.pid,
+        x: r.device.x,
+        y: r.device.y,
+        pf: r.device.pf,
+        softBin: r.device.softBin,
+        site: r.device.site,
+      })),
+    };
+  }
+
   if (!findWaferDefinition(lot, wafer)) return undefined;
 
   const results = generateWaferDeviceResults(lot, wafer);
@@ -652,6 +753,7 @@ export function generateWaferMapData(lot: string, wafer: string): WaferMapData |
     y: r.device.y,
     pf: r.device.pf,
     softBin: r.device.softBin,
+    site: r.device.site,
   }));
 
   return {
@@ -675,15 +777,12 @@ export function explainFailures(limit = 8): FailureExplanation[] {
     const highLimit = testResult?.highLimit ?? TEST_HIGH_LIMIT;
     const unit = testResult?.unit ?? TEST_UNIT;
     const site = siteBySite.get(r.device.site);
-    const binCause =
-      BIN_CAUSE_HINTS[r.device.softBin] ?? "尚無對照的失敗原因說明，需要工程師補充 bin definition";
-
     const limitReason =
       value > highLimit
         ? `量測值 ${value.toFixed(3)} ${unit}，超出 High Limit ${highLimit} ${unit} 達 ${(value - highLimit).toFixed(3)}`
         : `量測值 ${value.toFixed(3)} ${unit}，低於 Low Limit ${lowLimit} ${unit} 達 ${(lowLimit - value).toFixed(3)}`;
 
-    const reasons = [limitReason, binCause];
+    const reasons = [limitReason];
     if (site?.isAnomalous) {
       reasons.push(
         `Site ${r.device.site} 整體平均值偏離其他 site（${site.anomalyReason}），此 device 的失敗可能與 site 系統性問題有關，而非單一 device 本身的缺陷`,
@@ -696,63 +795,96 @@ export function explainFailures(limit = 8): FailureExplanation[] {
       testSuiteName: r.results[0]?.testSuiteName ?? TEST_SUITE_NAME,
       value,
       softBin: r.device.softBin,
-      binLabel: SOFT_BIN_LABELS[r.device.softBin] ?? `Bin ${r.device.softBin}`,
+      binLabel: binLabel(r.device.softBin),
       summary: site?.isAnomalous
         ? `疑似 Site ${r.device.site} 系統性問題（site imbalance），建議優先排查 site 而非單一 device`
-        : binCause,
+        : limitReason,
       reasons,
     };
   });
 }
 
 // ---------------------------------------------------------------------------
-// 場景二：IC 溫度預測 + 通知機台軟體（官方題目原文的第二個場景）
+// 場景二：per-device sensor 預測（mock 備援）
 //
-// 目前完全是 demo 架構：用「漏電流（IDDQ）數值越高、推估接面溫度越高」這個
-// 半導體物理上合理但被我簡化成線性關係的假設，把 site 的量測值換算成一個
-// 「預測溫度」。這不是真正的溫度感測或 ML 模型，只是先把 UI/資料流程搭出來，
-// 等拿到真實 CSV 資料集後，要整個換成真正的預測邏輯。見 Notion 對齊表。
+// 資料來自真實的 A12345_W01_RawResult.csv（80 個 device、6 個 sensor，上限 35）：
+// thermalFixture.json 是用 backend/scripts/build_thermal_fixture.py 跑後端真正的
+// 預測邏輯（leave-one-device-out ridge，只用排在該 sensor 之前的欄位當 feature）
+// 產生的「預測值 + 實測值」，不是憑空編的數字。
+// 專案裡只有 W01 這一片真實資料，所以即時與歷史 wafer 都沿用同一份資料、只換
+// lot/wafer 標籤——僅供無後端時 demo，串真實後端後整段可移除。
 // ---------------------------------------------------------------------------
 
-const AMBIENT_TEMP_C = 25; // demo 用室溫基準
-const TEMP_SENSITIVITY_C_PER_MA = 7.5; // demo 用：每超出 baseline 電流 1 mA，推估溫度上升幾度
-const NOTIFY_TEMP_THRESHOLD_C = 85; // demo 用通知門檻，真實門檻需與工程師/機台規格確認
+const THERMAL_LIVE_COMPLETED_SENSORS = 3; // 跟 backend/app/state.py 的預設一致：sensor1~3 已實測，預測 sensor4
 
-export function generateTemperatureSnapshot(): TemperatureSnapshot {
-  const results = generateMockResults();
-  const siteSummaries = summarizeBySite(results);
+function classifyThermal(value: number | null, upper: number | null): ThermalStatus {
+  if (value === null || upper === null) return "pending";
+  if (value >= upper) return "critical";
+  if (value >= upper - thermalFixture.warnMargin) return "warning";
+  return "normal";
+}
 
-  const predictions: TemperaturePrediction[] = siteSummaries.map((s) => {
-    const predictedTempC = AMBIENT_TEMP_C + (s.mean - 19.5) * TEMP_SENSITIVITY_C_PER_MA;
-    const shouldNotify = predictedTempC >= NOTIFY_TEMP_THRESHOLD_C;
+function thermalVerdict(status: ThermalStatus, actual: number | null, upper: number | null): ThermalVerdict | null {
+  if (actual === null || upper === null || status === "pending") return null;
+  const predictedAlarm = status !== "normal";
+  const actualAlarm = classifyThermal(actual, upper) !== "normal";
+  if (predictedAlarm && actualAlarm) return "hit";
+  if (predictedAlarm) return "false_alarm";
+  if (actualAlarm) return "miss";
+  return "ok";
+}
 
-    return {
-      site: s.site,
-      predictedTempC: Number(predictedTempC.toFixed(1)),
-      thresholdC: NOTIFY_TEMP_THRESHOLD_C,
-      shouldNotify,
-      confidence: shouldNotify ? 0.72 : 0.88,
-      predictedAt: new Date().toISOString(),
-      basis: [
-        `依 Site ${s.site} 的 ${TEST_SUITE_NAME} 平均量測值 ${s.mean} ${TEST_UNIT} 推估（demo 用線性關係：量測值每偏離 baseline 1 ${TEST_UNIT}，溫度預估 +${TEMP_SENSITIVITY_C_PER_MA}°C，非真正的溫度感測或訓練過的模型）`,
-      ],
-    };
-  });
+export function generateWaferThermal(lot: string, wafer: string): WaferThermal | undefined {
+  const isLive = lot === LIVE_LOT && wafer === LIVE_WAFER;
+  const isKnownHistorical = findWaferDefinition(lot, wafer) !== undefined;
+  if (!isLive && !isKnownHistorical) return undefined;
 
-  const notifications: MachineNotification[] = predictions
-    .filter((p) => p.shouldNotify)
-    .map((p) => ({
-      id: `notify-site-${p.site}`,
-      site: p.site,
-      predictedTempC: p.predictedTempC,
-      action: `建議降低 Site ${p.site} 測試速度或暫停該 site，待溫度回落至 ${NOTIFY_TEMP_THRESHOLD_C}°C 以下`,
-      sentAt: new Date().toISOString(),
-      status: "SENT",
-    }));
+  const total = thermalFixture.sensors.length;
+  const done = isLive ? THERMAL_LIVE_COMPLETED_SENSORS : total;
+  const nextSensor = done < total ? thermalFixture.sensors[done].index : null;
+  const stageOf = (position: number): SensorStage => (position < done ? "verified" : position === done ? "next" : "future");
 
   return {
+    lot,
+    wafer,
+    isLive,
     generatedAt: new Date().toISOString(),
-    predictions,
-    notifications,
+    completedSensors: done,
+    nextSensor,
+    sensors: thermalFixture.sensors.map((s, position) => ({
+      ...s,
+      warnThreshold: s.upperLimit - thermalFixture.warnMargin,
+      stage: stageOf(position),
+    })),
+    devices: thermalFixture.devices.map((d) => ({
+      pid: d.pid,
+      site: d.site,
+      x: d.x,
+      y: d.y,
+      sensors: d.sensors.map((sv, position) => {
+        const stage = stageOf(position);
+        const upper = thermalFixture.sensors[position].upperLimit;
+        const predicted = stage === "future" ? null : sv.predicted;
+        const actual = stage === "verified" ? sv.actual : null;
+        const status: ThermalStatus = stage === "future" ? "pending" : classifyThermal(predicted, upper);
+        return {
+          sensor: thermalFixture.sensors[position].index,
+          predicted,
+          actual,
+          error: predicted !== null && actual !== null ? actual - predicted : null,
+          status,
+          verdict: thermalVerdict(status, actual, upper),
+        };
+      }),
+    })),
   };
+}
+
+// Sites 頁 Table 的 mock 備援：真實 W01 的 Fail 異常事件（failFixture.json，由
+// backend/scripts/build_thermal_fixture.py 用後端 wafer_fails() 產生）。跟
+// generateWaferThermal() 一樣只有 W01 一片真實資料，其他 wafer 只換標籤。
+export function generateWaferFails(lot: string, wafer: string): WaferFails | undefined {
+  const isLive = lot === LIVE_LOT && wafer === LIVE_WAFER;
+  if (!isLive && !findWaferDefinition(lot, wafer)) return undefined;
+  return { lot, wafer, events: failFixture.events, rows: failFixture.rows as WaferFails["rows"] };
 }

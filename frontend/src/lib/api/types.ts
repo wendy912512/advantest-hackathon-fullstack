@@ -60,10 +60,16 @@ export interface SiteSummary {
   site: number;
   count: number;
   passRate: number; // 0-1
+  failDeviceCount?: number;
   mean: number;
   stdDev: number;
   isAnomalous: boolean;
   anomalyReason?: string;
+  // [min, Q1, median, Q3, max]，來自該 site 全部原始量測值算出來的真正五數
+  // 彙總，不是用 mean/stdDev 假設常態分布反推的近似值。後端資料不足（少於
+  // 2 筆量測值）時可能缺席，此時 UI 端會 fallback 回 estimateBoxplotDist()
+  // 這個近似算法，見 src/lib/theme.ts。
+  boxplot?: [number, number, number, number, number];
 }
 
 export interface BinBreakdown {
@@ -137,6 +143,11 @@ export interface WaferPoint {
   y: number;
   pf: PassFail;
   softBin: number;
+  // 這片 wafer 上這顆 device 屬於哪個 site。有這個欄位才能在「Sites」頁面
+  // 選一個歷史 lot/wafer 時，把這片 wafer 的 device 依 site 分組算出各 site
+  // 的 pass rate——沒有原始量測值，所以歷史 wafer 只能算 pass rate，算不出
+  // mean/stdDev/boxplot（那些只有「目前正在測試中」的即時資料才有）。
+  site: number;
 }
 
 export interface WaferMapData {
@@ -157,35 +168,83 @@ export interface FailureExplanation {
   reasons: string[];
 }
 
-// 場景二：預測 IC 溫度，並將結果通知機台軟體（官方題目原文）。
-// 這跟場景一（異常偵測儀表板）性質不同：是「預測模型 + 控制回傳」，不是單純顯示異常。
-// 目前為 mock 架構雛形，真實模型/CSV 資料到位後，fetchTemperatureSnapshot() 內部邏輯需整個替換。
-export interface TemperaturePrediction {
-  site: number;
-  predictedTempC: number;
-  thresholdC: number;
-  shouldNotify: boolean;
-  confidence: number; // 0-1，demo 用假信心值，真正模型需重新定義
-  predictedAt: string; // ISO
-  basis: string[]; // 規則式推論依據說明（呼應 FailureExplanation 的設計）
+// 場景二：在「下一個 sensor 測試執行前」，對整片 wafer 的每個 device 分別預測
+// 該 sensor 的值，預測會超標就立即通知；實測完成後回填實際值、誤差與判定
+// （預測成功 / 誤報 / 漏報）。不是等 80 個 device 測完才分析。
+// 真實資料形狀見 backend/app/thermal.py 與 A12345_W01_RawResult.csv。
+export type ThermalStatus = "normal" | "warning" | "critical" | "pending";
+export type ThermalVerdict = "hit" | "false_alarm" | "miss" | "ok";
+// verified：已實測；next：正要預測的下一個 sensor；future：還沒輪到，不預測
+export type SensorStage = "verified" | "next" | "future";
+
+export interface ThermalSensorMeta {
+  index: number;
+  name: string; // 如 160_Main.sensor4#IO1
+  testNumber: number;
+  upperLimit: number | null;
+  warnThreshold: number | null;
+  unit: string;
+  stage: SensorStage;
 }
 
-export type NotificationStatus = "SENT" | "ACKNOWLEDGED" | "PENDING";
-
-// 通知機台軟體的紀錄（模擬 ONEAPI Interface.sendCommand() 這類雙向互動）
-export interface MachineNotification {
-  id: string;
-  site: number;
-  predictedTempC: number;
-  action: string;
-  sentAt: string;
-  status: NotificationStatus;
+export interface DeviceSensorPrediction {
+  sensor: number;
+  predicted: number | null;
+  actual: number | null; // 只有 stage=verified 才有
+  error: number | null; // actual - predicted
+  status: ThermalStatus; // 預測狀態
+  verdict: ThermalVerdict | null; // 實測回來後才有
 }
 
-export interface TemperatureSnapshot {
+export interface DeviceThermal {
+  pid: string;
+  site: number;
+  x: number;
+  y: number;
+  sensors: DeviceSensorPrediction[];
+}
+
+export interface WaferThermal {
+  lot: string;
+  wafer: string;
+  isLive: boolean;
   generatedAt: string;
-  predictions: TemperaturePrediction[];
-  notifications: MachineNotification[];
+  completedSensors: number;
+  nextSensor: number | null;
+  sensors: ThermalSensorMeta[];
+  devices: DeviceThermal[];
+}
+
+// Sites 頁 Table：只列 Fail 異常資料。每列是「一顆 fail device 的一個超標事件」
+// （event 為 null 表示只有 SBin/HBin 判定失敗、沒有對應的超標測項）。
+// 事件（約 3000 個測項）只有超出上下限的才會出現在 events 下拉選單。
+export interface FailRow {
+  pid: string;
+  site: number;
+  x: number;
+  y: number;
+  softBin: number;
+  softBinLabel: string;
+  hardBin: number;
+  hardBinLabel: string;
+  event: string | null; // 如 220_Main.Suite1#CP
+  meaning: string | null; // 事件涵義；只有名稱本身有明確依據的（sensorN、IDDQ）才有，其餘為 null
+  value: number | null;
+  lowLimit: number | null;
+  highLimit: number | null;
+}
+
+export interface FailEventOption {
+  event: string;
+  meaning: string | null;
+  count: number;
+}
+
+export interface WaferFails {
+  lot: string;
+  wafer: string;
+  events: FailEventOption[];
+  rows: FailRow[];
 }
 
 export interface DashboardSnapshot {

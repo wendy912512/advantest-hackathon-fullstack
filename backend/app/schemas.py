@@ -36,9 +36,23 @@ class TestResultField(BaseModel):
     model_config = {"populate_by_name": True}
 
 
+class FailEvent(BaseModel):
+    """One failing test event (out-of-limit measurement) of one device."""
+
+    event: str  # 如 220_Main.Suite1#CP
+    testNumber: int
+    testSuiteName: str
+    pinName: str | None = None
+    value: float
+    lowLimit: float | None = None
+    highLimit: float | None = None
+    meaning: str | None = None
+
+
 class DeviceTestResult(BaseModel):
     device: DeviceInfo
     results: list[TestResultField] = Field(default_factory=list)
+    failEvents: list[FailEvent] = Field(default_factory=list)
 
 
 class Measurement(BaseModel):
@@ -61,4 +75,3 @@ class LotStart(BaseModel):
 class WaferStart(BaseModel):
     wafer: str
     radius: int = Field(default=20, gt=0)
-

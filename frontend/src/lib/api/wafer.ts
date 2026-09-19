@@ -1,11 +1,15 @@
 import type { WaferMapData } from "./types";
 import { apiClient } from "./client";
+import { generateWaferMapData } from "./mock";
+import { fetchWithMockFallback } from "./withFallback";
 
-// TODO: 後端串接完成後，改為 apiClient.get<WaferMapData>(`/lots/${lot}/wafers/${wafer}`)
-export async function fetchWaferMapData(
-  lot: string,
-  wafer: string,
-): Promise<WaferMapData | undefined> {
-  const { data } = await apiClient.get<WaferMapData>(`/lots/${lot}/wafers/${wafer}`);
-  return data;
+export async function fetchWaferMapData(lot: string, wafer: string): Promise<WaferMapData | undefined> {
+  return fetchWithMockFallback(
+    async () => {
+      const { data } = await apiClient.get<WaferMapData>(`/lots/${lot}/wafers/${wafer}`);
+      return data;
+    },
+    () => generateWaferMapData(lot, wafer),
+    (data) => !data || data.points.length === 0,
+  );
 }
