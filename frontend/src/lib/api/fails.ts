@@ -11,6 +11,8 @@ export async function fetchWaferFails(lot: string, wafer: string): Promise<Wafer
       return data;
     },
     () => generateWaferFails(lot, wafer),
-    (data) => !data || data.rows.length === 0,
+    // rows 為空代表這片 wafer 沒有 Fail，這是有效的後端結果；只有沒有
+    // 回傳物件時才 fallback，避免正常 wafer 被 mock 塞入假異常。
+    (data) => !data,
   );
 }

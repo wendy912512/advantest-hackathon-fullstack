@@ -16,7 +16,7 @@ export async function fetchLotList(): Promise<LotListItem[]> {
 export async function fetchLotSummary(lot: string): Promise<LotSummary | undefined> {
   return fetchWithMockFallback(
     async () => {
-      const { data } = await apiClient.get<LotSummary>(`/lots/${lot}`);
+      const { data } = await apiClient.get<LotSummary>(`/lots/${encodeURIComponent(lot)}`);
       return data;
     },
     () => generateLotSummary(lot),

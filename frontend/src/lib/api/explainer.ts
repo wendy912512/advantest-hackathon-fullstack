@@ -11,5 +11,7 @@ export async function fetchFailureExplanations(limit = 8): Promise<FailureExplan
       return data;
     },
     () => explainFailures(limit),
+    // 沒有可解釋的 Fail 是有效狀態，不應該再補入 mock 異常通知。
+    (data) => !data,
   );
 }
