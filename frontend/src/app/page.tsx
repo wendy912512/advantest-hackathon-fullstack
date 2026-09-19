@@ -8,12 +8,28 @@ import { RecentResultsTable } from "@/app/_components/RecentResultsTable";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 
 export default function DashboardPage() {
-  const { snapshot, isLoading } = useDashboardSnapshot();
+  const { snapshot, isLoading, error } = useDashboardSnapshot();
 
-  if (isLoading || !snapshot) {
+  if (isLoading) {
     return (
       <div className="mx-auto max-w-6xl px-6 py-10">
         <p className="text-muted-foreground">載入即時測試資料中…</p>
+      </div>
+    );
+  }
+
+  if (!snapshot) {
+    return (
+      <div className="mx-auto max-w-6xl px-6 py-10">
+        <Card>
+          <CardHeader>
+            <CardTitle className="text-base">暫時無法取得即時資料</CardTitle>
+          </CardHeader>
+          <CardContent className="space-y-2 text-sm text-muted-foreground">
+            <p>{error ?? "系統將自動重試。"}</p>
+            <p>請確認後端服務是否已啟動；系統會每 5 秒重新嘗試連線。</p>
+          </CardContent>
+        </Card>
       </div>
     );
   }
@@ -23,8 +39,9 @@ export default function DashboardPage() {
       <div>
         <h1 className="text-xl font-semibold">即時異常監控面板</h1>
         <p className="text-sm text-muted-foreground">
-          最後更新：{new Date(snapshot.generatedAt).toLocaleTimeString()}（每 5 秒自動刷新，目前為 Mock 資料）
+          最後更新：{new Date(snapshot.generatedAt).toLocaleTimeString()}（每 5 秒自動更新）
         </p>
+        {error ? <p className="mt-1 text-sm text-amber-700">{error}</p> : null}
       </div>
 
       <OverviewStats snapshot={snapshot} />
