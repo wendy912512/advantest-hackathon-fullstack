@@ -15,9 +15,9 @@ function predictionOf(device: DeviceThermal, sensor: number): DeviceSensorPredic
 
 function SummaryStat({ label, value, color }: { label: string; value: string; color?: string }) {
   return (
-    <div style={{ background: C.card, border: `1px solid ${C.border}`, borderRadius: 12, padding: "14px 16px", boxShadow: C.shadow }}>
-      <div style={{ fontFamily: MONO, fontSize: 11, color: C.muted, letterSpacing: "0.06em", marginBottom: 8 }}>{label}</div>
-      <div style={{ fontFamily: MONO, fontSize: 22, fontWeight: 600, color: color ?? C.text }}>{value}</div>
+    <div style={{ background: C.card, border: `1px solid ${C.border}`, borderRadius: 12, padding: "8px 14px", boxShadow: C.shadow }}>
+      <div style={{ fontFamily: MONO, fontSize: 10, color: C.muted, letterSpacing: "0.06em", marginBottom: 2 }}>{label}</div>
+      <div style={{ fontFamily: MONO, fontSize: 18, fontWeight: 600, color: color ?? C.text }}>{value}</div>
     </div>
   );
 }
@@ -60,7 +60,7 @@ export function WaferThermalView({ data }: { data: WaferThermal }) {
 
   return (
     <div>
-      <div style={{ display: "flex", gap: 6, flexWrap: "wrap", marginBottom: 20 }}>
+      <div style={{ display: "flex", gap: 6, flexWrap: "wrap", marginBottom: 14 }}>
         {data.sensors.map((s) => {
           const active = s.index === sensor.index;
           return (
@@ -70,7 +70,7 @@ export function WaferThermalView({ data }: { data: WaferThermal }) {
               disabled={s.stage === "future"}
               title={s.stage === "future" ? "還沒輪到這個 sensor，不預測" : s.name}
               style={{
-                padding: "8px 14px",
+                padding: "5px 12px",
                 borderRadius: 10,
                 border: `1px solid ${active ? C.blue : C.border}`,
                 background: active ? C.blueBg : C.card,
@@ -79,19 +79,21 @@ export function WaferThermalView({ data }: { data: WaferThermal }) {
                 fontFamily: MONO,
                 fontSize: 12,
                 fontWeight: active ? 600 : 400,
-                textAlign: "left",
+                display: "flex",
+                alignItems: "center",
+                gap: 8,
               }}
             >
-              <div>{s.name.replace(/^\d+_Main\./, "")}</div>
-              <div style={{ fontSize: 10, color: C.muted, fontWeight: 400 }}>{STAGE_LABELS[s.stage]}</div>
+              <span>{s.name.replace(/^\d+_Main\./, "")}</span>
+              <span style={{ fontSize: 10, color: C.muted, fontWeight: 400 }}>{STAGE_LABELS[s.stage]}</span>
             </button>
           );
         })}
       </div>
 
-      <div style={{ marginBottom: 32 }}>
+      <div style={{ marginBottom: 20 }}>
         <SectionHeader id="thermal-summary" label={`Wafer ${data.wafer} 預測摘要 — ${sensor.name}`} />
-        <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(150px, 1fr))", gap: 12 }}>
+        <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(130px, 1fr))", gap: 8 }}>
           <SummaryStat label="預測中的 DEVICE" value={`${predicted} 個`} />
           <SummaryStat label="預測正常" value={`${count("normal")} 個`} color={C.green} />
           <SummaryStat label="預測 WARNING" value={`${count("warning")} 個`} color={C.yellow} />
@@ -99,14 +101,14 @@ export function WaferThermalView({ data }: { data: WaferThermal }) {
           <SummaryStat label="待實際驗證" value={`${awaiting} 個`} color={C.muted} />
         </div>
         {sensor.stage === "verified" && (
-          <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(150px, 1fr))", gap: 12, marginTop: 12 }}>
+          <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(150px, 1fr))", gap: 8, marginTop: 8 }}>
             <SummaryStat label="預測成功" value={`${verdictCount("hit")} 個`} color={C.green} />
             <SummaryStat label="誤報" value={`${verdictCount("false_alarm")} 個`} color={C.yellow} />
             <SummaryStat label="漏報" value={`${verdictCount("miss")} 個`} color={C.red} />
             <SummaryStat label="平均絕對誤差" value={mae === null ? "—" : `${mae.toFixed(2)}${sensor.unit}`} />
           </div>
         )}
-        <div style={{ fontSize: 12, color: C.muted, marginTop: 10 }}>
+        <div style={{ fontSize: 11, color: C.muted, marginTop: 6 }}>
           規格上限 {sensor.upperLimit ?? "—"}
           {sensor.unit}，預測 ≥ {sensor.warnThreshold?.toFixed(2) ?? "—"}
           {sensor.unit} 為 Warning、≥ 上限為 Critical（Warning 區間為暫定值，需與工程師確認）。
@@ -114,23 +116,23 @@ export function WaferThermalView({ data }: { data: WaferThermal }) {
         </div>
       </div>
 
-      <div style={{ marginBottom: 32 }}>
+      <div style={{ marginBottom: 20 }}>
         <SectionHeader id="thermal-matrix" label="Device 預測狀態矩陣" count={data.devices.length} />
-        <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginBottom: 8 }}>
+        <div style={{ display: "flex", gap: 8, flexWrap: "wrap", alignItems: "center", marginBottom: 10 }}>
           {(["normal", "warning", "critical", "pending"] as const).map((st) => (
             <span key={st} className="md-chip">
-              <span className="md-chip-icon" style={{ color: STATUS_COLORS[st].fg }}>
+              <span className="md-tile-icon md-tile-icon-sm" style={{ color: STATUS_COLORS[st].fg }}>
                 <StatusIcon status={st} />
               </span>
               {st === "normal" ? "預測溫度正常" : st === "warning" ? "預測接近上限" : st === "critical" ? "預測會超過上限" : "尚未收到足夠資料"}
             </span>
           ))}
+          <span style={{ display: "inline-flex", alignItems: "center", gap: 6, fontSize: 12, color: C.muted }}>
+            <span style={{ width: 14, height: 14, borderRadius: 4, background: C.surfaceVariant, flexShrink: 0 }} />
+            灰底 = 已預測、待實測驗證
+          </span>
         </div>
-        <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 14, fontSize: 12, color: C.muted }}>
-          <span style={{ width: 16, height: 16, borderRadius: 4, background: C.surfaceVariant, flexShrink: 0 }} />
-          灰色磚 = 已有預測、尚未取得實際數據（待驗證），圖示顏色為預測狀態；實測回來後整塊改為該狀態的底色
-        </div>
-        <div style={{ position: "relative" }} onMouseLeave={() => setHover(null)}>
+        <div className="md-matrix-wrap" onMouseLeave={() => setHover(null)}>
         <div className="md-matrix">
           {preds.map(({ device, p }) => {
             const st = p?.status ?? "pending";
@@ -154,12 +156,14 @@ export function WaferThermalView({ data }: { data: WaferThermal }) {
                   color: C.text,
                 }}
               >
-                <span className="md-tile-icon" style={{ background: awaitingActual ? colors.bg : "rgba(255,255,255,0.65)", color: colors.fg }}>
+                <span className="md-tile-icon" style={{ color: colors.fg }}>
                   <StatusIcon status={st} />
                 </span>
-                <span className="md-tile-label">{formatPid(device.pid)}</span>
-                <span className="md-tile-value" style={{ color: C.sub }}>
-                  {p?.predicted != null ? `${p.predicted.toFixed(2)}°` : "—"}
+                <span className="md-tile-text">
+                  <span className="md-tile-label">{formatPid(device.pid)}</span>
+                  <span className="md-tile-value" style={{ color: C.sub }}>
+                    {p?.predicted != null ? p.predicted.toFixed(2) : "—"}
+                  </span>
                 </span>
               </button>
             );
@@ -251,13 +255,13 @@ function HoverCard({
   );
 }
 
-// Material Symbols（filled）：check_circle / warning / error / schedule
-const ICON_PATHS = {
-  normal: "M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm-2 15l-5-5 1.41-1.41L10 14.17l7.59-7.59L19 8l-9 9z",
+// 只有圖示本身（沒有底色與外框），顏色對齊右側即時通知。路徑取自 Material Symbols：check / warning / cancel(⊗) / schedule。
+const ICON_PATHS: Record<ThermalStatus, string> = {
+  normal: "M9 16.17 4.83 12l-1.42 1.41L9 19 21 7l-1.41-1.41z",
   warning: "M1 21h22L12 2 1 21zm12-3h-2v-2h2v2zm0-4h-2v-4h2v4z",
-  critical: "M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm1 15h-2v-2h2v2zm0-4h-2V7h2v6z",
+  critical: "M12 2C6.47 2 2 6.47 2 12s4.47 10 10 10 10-4.47 10-10S17.53 2 12 2zm5 13.59L15.59 17 12 13.41 8.41 17 7 15.59 10.59 12 7 8.41 8.41 7 12 10.59 15.59 7 17 8.41 13.41 12 17 15.59z",
   pending: "M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm0 18c-4.42 0-8-3.58-8-8s3.58-8 8-8 8 3.58 8 8-3.58 8-8 8zm.5-13H11v6l5.25 3.15.75-1.23-4.5-2.67z",
-} as const;
+};
 
 function StatusIcon({ status }: { status: ThermalStatus }) {
   return (

@@ -84,10 +84,10 @@ export default function TemperaturePage() {
         onSelectWafer={setSelectedWafer}
       />
 
-      <div style={{ fontSize: 12, marginBottom: 20, color: C.muted }}>
+      <div style={{ fontSize: 12, marginBottom: 12, color: C.muted }}>
         {isLive
-          ? "這是目前正在測試的 wafer：顯示最即時的資料——已實測的 sensor 有預測與實際值，正要測的下一個 sensor 只有預測（預測會超標會立刻通知到右側警告欄）。"
-          : "這不是目前正在測試的 wafer：顯示預測與正式測試結果，可以看預測準不準。"}
+          ? "目前測試中的 wafer：已實測的 sensor 有預測與實際值，正要測的 sensor 只有預測（預測會超標會立刻通知到右側警告欄）。"
+          : "非目前測試中的 wafer：顯示預測與正式測試結果，可以看預測準不準。"}
       </div>
 
       {data ? (

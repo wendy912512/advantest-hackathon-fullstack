@@ -200,26 +200,36 @@
 }
 /* ─── Material Design 3：device tonal tile / assist chip ────────────────── */
 
-/* 80 個 device 排成 8 x 10，寬度填滿整個內容區（不留右側空白）；窄螢幕改 4 欄 */
+/* 80 個 device：依「矩陣可用寬度」決定欄數（視窗寬度不準，右側警告欄會佔掉 324px）。
+   寬 → 10 x 8、中 → 8 x 10、窄 → 4 欄，磚寬都維持 ≥ 90px 不會擠壞文字。 */
+.md-matrix-wrap {
+  container-type: inline-size;
+  position: relative;
+}
 .md-matrix {
   display: grid;
-  grid-template-columns: repeat(8, minmax(0, 1fr));
+  grid-template-columns: repeat(4, minmax(0, 1fr));
   gap: 8px;
 }
-@media (max-width: 640px) {
+@container (min-width: 560px) {
   .md-matrix {
-    grid-template-columns: repeat(4, minmax(0, 1fr));
+    grid-template-columns: repeat(8, minmax(0, 1fr));
+  }
+}
+@container (min-width: 960px) {
+  .md-matrix {
+    grid-template-columns: repeat(10, minmax(0, 1fr));
   }
 }
 
 .md-tile {
   position: relative;
   display: flex;
-  flex-direction: column;
-  align-items: flex-start;
-  gap: 2px;
-  min-height: 76px;
-  padding: 10px 12px;
+  flex-direction: row;
+  align-items: center;
+  gap: 10px;
+  min-height: 50px;
+  padding: 8px 12px;
   border: none;
   border-radius: 12px; /* shape.medium */
   cursor: pointer;
@@ -252,13 +262,26 @@
   outline: 2px solid #1a73e8 !important;
   outline-offset: 2px !important;
 }
+/* 狀態圖示：只有符號本身，不加底色與外框 */
 .md-tile-icon {
   display: inline-flex;
-  width: 24px;
-  height: 24px;
-  padding: 2px;
-  margin-bottom: 4px;
-  border-radius: 50%;
+  width: 20px;
+  height: 20px;
+  flex-shrink: 0;
+}
+.md-tile-icon svg {
+  width: 100%;
+  height: 100%;
+}
+.md-tile-icon-sm {
+  width: 18px;
+  height: 18px;
+}
+.md-tile-text {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
 }
 .md-tile-label {
   font-size: 12px; /* label.large */
@@ -271,21 +294,15 @@
   font-size: 11px; /* label.small */
   line-height: 14px;
 }
-
 .md-chip {
   display: inline-flex;
   align-items: center;
   gap: 8px;
   height: 32px;
-  padding: 0 12px 0 8px;
+  padding: 0 12px 0 6px;
   border: 1px solid #cac4d0; /* outline-variant */
   border-radius: 8px; /* shape.small */
   font-size: 12px;
   font-weight: 500;
   color: #49454f;
-}
-.md-chip-icon {
-  display: inline-flex;
-  width: 18px;
-  height: 18px;
 }
