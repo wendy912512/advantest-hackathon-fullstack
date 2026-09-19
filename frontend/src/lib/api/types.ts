@@ -64,6 +64,11 @@ export interface SiteSummary {
   stdDev: number;
   isAnomalous: boolean;
   anomalyReason?: string;
+  // [min, Q1, median, Q3, max]，來自該 site 全部原始量測值算出來的真正五數
+  // 彙總，不是用 mean/stdDev 假設常態分布反推的近似值。後端資料不足（少於
+  // 2 筆量測值）時可能缺席，此時 UI 端會 fallback 回 estimateBoxplotDist()
+  // 這個近似算法，見 src/lib/theme.ts。
+  boxplot?: [number, number, number, number, number];
 }
 
 export interface BinBreakdown {

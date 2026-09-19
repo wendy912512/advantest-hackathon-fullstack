@@ -1,14 +1,25 @@
 import type { LotListItem, LotSummary } from "./types";
 import { apiClient } from "./client";
+import { generateLotList, generateLotSummary } from "./mock";
+import { fetchWithMockFallback } from "./withFallback";
 
-// TODO: 後端串接完成後，改為 apiClient.get<LotListItem[]>("/lots")
 export async function fetchLotList(): Promise<LotListItem[]> {
-  const { data } = await apiClient.get<LotListItem[]>("/lots");
-  return data;
+  return fetchWithMockFallback(
+    async () => {
+      const { data } = await apiClient.get<LotListItem[]>("/lots");
+      return data;
+    },
+    generateLotList,
+  );
 }
 
-// TODO: 後端串接完成後，改為 apiClient.get<LotSummary>(`/lots/${lot}`)
 export async function fetchLotSummary(lot: string): Promise<LotSummary | undefined> {
-  const { data } = await apiClient.get<LotSummary>(`/lots/${lot}`);
-  return data;
+  return fetchWithMockFallback(
+    async () => {
+      const { data } = await apiClient.get<LotSummary>(`/lots/${lot}`);
+      return data;
+    },
+    () => generateLotSummary(lot),
+    (data) => !data,
+  );
 }

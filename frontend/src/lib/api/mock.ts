@@ -17,6 +17,7 @@ import type {
   WaferMapData,
   WaferPoint,
 } from "./types";
+import { SOFT_BIN_LABELS } from "@/lib/binLabels";
 
 // 模擬 ONEAPI consumeData() 收到的即時測試資料。
 // 後端串接後，此檔案可整份移除，改由 lib/api/dashboard.ts、lib/api/sites.ts 呼叫真實 API。
@@ -36,24 +37,18 @@ const TEST_UNIT = "mA";
 const TEST_LOW_LIMIT = 12.1;
 const TEST_HIGH_LIMIT = 30.0;
 
-// Bin 對照表（demo 假資料，真實對照要工程師提供，見 Notion 對齊表）
-const SOFT_BIN_LABELS: Record<number, string> = {
-  1: "Pass",
-  2: "Leakage Fail",
-  3: "Timing Fail",
-  4: "Functional Fail",
-};
+// Bin 對照表移到 @/lib/binLabels，跟前端 UI 元件（LotBrowser、SiteDrawer）與
+// 後端 backend/app/bin_labels.py 共用同一份，避免有的地方顯示真實原因、
+// 有的地方顯示裸的「Bin 2」數字。
 // 官方訓練資料集（TrainDataInfo.txt）證實的真實門檻：25 片 wafer 中，
 // W3（67.5%）與 W9（68.8%）被標記為「Low yield which yield is low than 80」，
 // 其餘正常 wafer 良率都在 80% 以上，所以 80% 是官方認定的門檻，不是猜的。
 const SITE_PASS_RATE_THRESHOLD = 0.8;
 const BIN_RATIO_ALERT_THRESHOLD = 0.05; // 單一失敗 bin 佔比超過 5% 視為疑似系統性問題（demo 用）
-// site mean 偏離整體超過此值視為 imbalance（demo 用，需與工程師確認）。
-// 注意：整體平均值是 4 個 site 的 pooled mean，異常 site 本身會把 pooled mean 拉偏，
-// 所以這個閾值要大於「單一異常 site 導致其他正常 site 被拉偏的量」，見 generateDevice()
-// 裡 IMBALANCED_SITE 的偏移量（+8.5）：其他 3 個正常 site 大約會被拉偏 8.5/4 ≈ 2.1，
-// 因此閾值需明顯大於 2.1，這裡取 4。
-export const IMBALANCE_DEVIATION_THRESHOLD = 4;
+// Site imbalance 判斷邏輯（median + MAD 穩健統計）在 summarizeBySite() 裡，
+// 不再用固定的絕對偏差門檻——舊版「偏離 pooled mean 超過某個常數」的做法
+// 有 pooled mean/threshold 被異常值自己拉偏的問題，詳見 summarizeBySite()
+// 上方註解與 backend/app/state.py 的對應修正。
 
 // Wafer map 參數（demo 用，真實晶圓尺寸/座標系統需與工程師確認，見 Notion 對齊表）
 const WAFER_RADIUS = 20;
@@ -96,6 +91,37 @@ function stdDev(values: number[]) {
   const m = mean(values);
   const variance = mean(values.map((v) => (v - m) ** 2));
   return Math.sqrt(variance);
+}
+
+function median(values: number[]) {
+  const ordered = [...values].sort((a, b) => a - b);
+  const mid = Math.floor(ordered.length / 2);
+  return ordered.length % 2 ? ordered[mid] : (ordered[mid - 1] + ordered[mid]) / 2;
+}
+
+// 跟 numpy 預設的 'linear' method 一致的線性內插百分位數，跟後端
+// backend/app/state.py 的 percentile() 用同一種算法，確保 mock 與真實
+// 後端的箱型圖數字口徑一致。
+function percentile(sortedValues: number[], fraction: number) {
+  if (sortedValues.length === 0) return 0;
+  if (sortedValues.length === 1) return sortedValues[0];
+  const index = fraction * (sortedValues.length - 1);
+  const lower = Math.floor(index);
+  const upper = Math.min(lower + 1, sortedValues.length - 1);
+  const weight = index - lower;
+  return sortedValues[lower] + (sortedValues[upper] - sortedValues[lower]) * weight;
+}
+
+function fiveNumberSummary(values: number[]): [number, number, number, number, number] | undefined {
+  if (values.length < 2) return undefined;
+  const ordered = [...values].sort((a, b) => a - b);
+  return [
+    ordered[0],
+    percentile(ordered, 0.25),
+    percentile(ordered, 0.5),
+    percentile(ordered, 0.75),
+    ordered[ordered.length - 1],
+  ];
 }
 
 let sequence = 0;
@@ -161,6 +187,17 @@ export function generateMockResults(count = 240): DeviceTestResult[] {
   return results;
 }
 
+// Site imbalance 判斷：比較「各 site 的均值」彼此之間的分布，用 median +
+// MAD（median absolute deviation，乘 1.4826 校正成與常態分布 stdDev 同尺度）
+// 這種穩健統計量，而不是拿單一 site 均值去跟「所有原始量測值的 pooled
+// mean/stdDev」比較。後者的問題：異常 site 自己的偏移與高變異會同時拉動
+// pooled mean 與 pooled stdDev，讓判斷門檻自己被異常值撐大，導致真正異常
+// 的 site 反而測不出來（在後端 backend/app/state.py 修正前實際發生過這個
+// bug，用這裡的 demo 數值算過：偏移 8.5mA/std 1.8 vs baseline 19.5mA/std
+// 0.3，pooled stdDev 會被撐到 ~3.8，3σ 門檻 ~11.4mA > 實際偏差 6.4mA，等於
+// 測不出來）。median/MAD 只用「4 個 site 的均值」本身的分布來判斷，單一
+// 離群 site 幾乎不會拉動中位數，這個邏輯跟 backend/app/state.py 的
+// build_site_summaries() 是同一套，維持前後端行為一致。
 export function summarizeBySite(results: DeviceTestResult[]): SiteSummary[] {
   const bySite = new Map<number, DeviceTestResult[]>();
   for (const r of results) {
@@ -169,17 +206,28 @@ export function summarizeBySite(results: DeviceTestResult[]): SiteSummary[] {
     bySite.set(r.device.site, list);
   }
 
-  const summaries: SiteSummary[] = [];
-  const overallValues = results.flatMap((r) => r.results.map((res) => res.value ?? 0));
-  const overallMean = mean(overallValues);
-
-  for (const [site, list] of Array.from(bySite.entries()).sort((a, b) => a[0] - b[0])) {
+  const siteValues = new Map<number, number[]>();
+  const siteMeans = new Map<number, number>();
+  for (const [site, list] of bySite) {
     const values = list.flatMap((r) => r.results.map((res) => res.value ?? 0));
+    siteValues.set(site, values);
+    siteMeans.set(site, mean(values));
+  }
+
+  const meansList = Array.from(siteMeans.values());
+  const robustCenter = meansList.length >= 3 ? median(meansList) : mean(meansList);
+  const mad =
+    meansList.length >= 3 ? median(meansList.map((m) => Math.abs(m - robustCenter))) : 0;
+  const scaledMad = Math.max(mad * 1.4826, 1e-6);
+
+  const summaries: SiteSummary[] = [];
+  for (const [site, list] of Array.from(bySite.entries()).sort((a, b) => a[0] - b[0])) {
+    const values = siteValues.get(site) ?? [];
     const passCount = list.filter((r) => r.device.pf === "PASS").length;
-    const siteMean = mean(values);
+    const siteMean = siteMeans.get(site) ?? 0;
     const siteStd = stdDev(values);
-    const deviation = Math.abs(siteMean - overallMean);
-    const isAnomalous = deviation > IMBALANCE_DEVIATION_THRESHOLD;
+    const deviation = Math.abs(siteMean - robustCenter);
+    const isAnomalous = values.length >= 5 && meansList.length >= 3 && deviation > 3 * scaledMad;
 
     summaries.push({
       site,
@@ -189,8 +237,9 @@ export function summarizeBySite(results: DeviceTestResult[]): SiteSummary[] {
       stdDev: Number(siteStd.toFixed(4)),
       isAnomalous,
       anomalyReason: isAnomalous
-        ? `Site unbalance：平均值偏離整體 ${deviation.toFixed(3)}`
+        ? `Site unbalance：平均值偏離其他 site 中位數 ${deviation.toFixed(3)}`
         : undefined,
+      boxplot: fiveNumberSummary(values),
     });
   }
 

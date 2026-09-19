@@ -1,16 +1,26 @@
 import type { DeviceTestResult, SiteSummary } from "./types";
 import { apiClient } from "./client";
+import { generateMockResults, summarizeBySite } from "./mock";
+import { fetchWithMockFallback } from "./withFallback";
 
-// TODO: 後端 ONEAPI 串接完成後，改為 apiClient.get<SiteSummary[]>("/sites")
 export async function fetchSiteSummaries(): Promise<SiteSummary[]> {
-  const { data } = await apiClient.get<SiteSummary[]>("/sites");
-  return data;
+  return fetchWithMockFallback(
+    async () => {
+      const { data } = await apiClient.get<SiteSummary[]>("/sites");
+      return data;
+    },
+    () => summarizeBySite(generateMockResults()),
+  );
 }
 
-// TODO: 後端串接完成後，改為 apiClient.get<DeviceTestResult[]>(`/sites/${site}/results`)
 export async function fetchSiteResults(site: number): Promise<DeviceTestResult[]> {
-  const { data } = await apiClient.get<DeviceTestResult[]>(`/sites/${site}/results`);
-  return data;
+  return fetchWithMockFallback(
+    async () => {
+      const { data } = await apiClient.get<DeviceTestResult[]>(`/sites/${site}/results`);
+      return data;
+    },
+    () => generateMockResults().filter((r) => r.device.site === site),
+  );
 }
 
 export async function fetchSiteSummary(site: number): Promise<SiteSummary | undefined> {

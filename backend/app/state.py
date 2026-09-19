@@ -5,8 +5,9 @@ from dataclasses import asdict, dataclass, field
 from datetime import datetime, timezone
 from math import sqrt
 from threading import RLock
-from typing import Any
+from typing import Any, Callable
 
+from .bin_labels import bin_label
 from .schemas import DeviceTestResult, Measurement, TestResultField
 
 
@@ -23,6 +24,49 @@ def std_dev(values: list[float]) -> float:
         return 0.0
     average = mean(values)
     return sqrt(sum((value - average) ** 2 for value in values) / len(values))
+
+
+def median(values: list[float]) -> float:
+    if not values:
+        return 0.0
+    ordered = sorted(values)
+    n = len(ordered)
+    mid = n // 2
+    return ordered[mid] if n % 2 else (ordered[mid - 1] + ordered[mid]) / 2
+
+
+def percentile(sorted_values: list[float], fraction: float) -> float:
+    """Linear-interpolation percentile (matches numpy's default 'linear' method)."""
+    if not sorted_values:
+        return 0.0
+    if len(sorted_values) == 1:
+        return sorted_values[0]
+    index = fraction * (len(sorted_values) - 1)
+    lower = int(index)
+    upper = min(lower + 1, len(sorted_values) - 1)
+    weight = index - lower
+    return sorted_values[lower] + (sorted_values[upper] - sorted_values[lower]) * weight
+
+
+def five_number_summary(values: list[float]) -> list[float] | None:
+    """[min, Q1, median, Q3, max] for the Site Imbalance Boxplot.
+
+    This is the real per-device distribution, not the mean/stdDev
+    normal-distribution approximation the frontend previously had to fall
+    back to (see estimateBoxplotDist() in frontend/src/lib/theme.ts) — that
+    approximation is still kept there as a fallback for whenever this field
+    is missing (e.g. fewer than 2 raw values), but this is the accurate one.
+    """
+    if len(values) < 2:
+        return None
+    ordered = sorted(values)
+    return [
+        ordered[0],
+        percentile(ordered, 0.25),
+        percentile(ordered, 0.5),
+        percentile(ordered, 0.75),
+        ordered[-1],
+    ]
 
 
 @dataclass
@@ -139,7 +183,9 @@ class RuntimeState:
             wafers[entry.device.wafer].append(entry)
         total = len(entries)
         pass_rate = sum(entry.device.pf == "PASS" for entry in entries) / total
-        soft_bins = bin_breakdown(entries, "softBin")
+        # Soft bin 有真實對照表（bin_label()），hard bin 目前沒有——demo 資料
+        # 裡 hardBin 只是 softBin 的複製，真實的 hard bin 分類要工程師另外提供。
+        soft_bins = bin_breakdown(entries, "softBin", label_fn=bin_label)
         hard_bins = bin_breakdown(entries, "hardBin")
         wafer_items = [wafer_list_item(name, values) for name, values in sorted(wafers.items())]
         issues = [
@@ -174,6 +220,7 @@ class RuntimeState:
             baseline = [point["value"] for point in points[:10]]
             baseline_mean = mean(baseline)
             baseline_std_dev = std_dev(baseline)
+            alerts = detect_trend_alerts(site, points, baseline_mean, baseline_std_dev)
             series.append({
                 "site": site,
                 "testSuiteName": "ALL",
@@ -182,7 +229,7 @@ class RuntimeState:
                 "baselineStdDev": baseline_std_dev,
                 "ucl": baseline_mean + 3 * baseline_std_dev,
                 "lcl": baseline_mean - 3 * baseline_std_dev,
-                "alerts": [],
+                "alerts": alerts,
             })
         return series
 
@@ -201,14 +248,14 @@ class RuntimeState:
             if result.lowLimit is not None and value < result.lowLimit:
                 reasons.append(f"Value {value:.4f} is below low limit {result.lowLimit:.4f}")
             if not reasons:
-                reasons.append(f"Soft bin {entry.device.softBin} reported a failure")
+                reasons.append(f"Soft bin {entry.device.softBin} ({bin_label(entry.device.softBin)}) reported a failure")
             explanations.append({
                 "pid": entry.device.pid,
                 "site": entry.device.site,
                 "testSuiteName": result.testSuiteName,
                 "value": value,
                 "softBin": entry.device.softBin,
-                "binLabel": f"Bin {entry.device.softBin}",
+                "binLabel": bin_label(entry.device.softBin),
                 "summary": reasons[0],
                 "reasons": reasons,
             })
@@ -221,6 +268,134 @@ class RuntimeState:
         model worker will record real predictions and tester notifications.
         """
         return {"generatedAt": now_iso(), "predictions": [], "notifications": []}
+
+
+# Trend-alert thresholds. These intentionally mirror the constants in
+# frontend/src/lib/api/mock.ts (TREND_CONSECUTIVE_RUN, TREND_SHIFT_RUN, and
+# the 1.6 / 0.62 stdev-ratio cutoffs) so the mock fallback and the real
+# backend produce alerts with the same semantics once this endpoint is fully
+# wired up. There is no shared config between the Python and TypeScript
+# codebases, so if one side's thresholds change, update the other by hand.
+TREND_CONSECUTIVE_RUN = 6  # 連續 N 點單邊上升/下降算 trend
+TREND_SHIFT_RUN = 8  # 連續 N 點落在 baseline mean 同一側算 shift
+TREND_STDEV_RATIO_UP = 1.6
+TREND_STDEV_RATIO_DOWN = 0.62
+
+
+def longest_run(values: list[float], direction: str) -> int:
+    if not values:
+        return 0
+    longest = 1
+    current = 1
+    for i in range(1, len(values)):
+        rising = values[i] > values[i - 1]
+        falling = values[i] < values[i - 1]
+        matches = rising if direction == "up" else falling
+        if matches:
+            current += 1
+            longest = max(longest, current)
+        else:
+            current = 1
+    return longest
+
+
+def detect_trend_alerts(
+    site: int,
+    points: list[dict[str, Any]],
+    baseline_mean: float,
+    baseline_std_dev: float,
+) -> list[dict[str, Any]]:
+    """Port of detectTrendAlerts() in frontend/src/lib/api/mock.ts.
+
+    Previously /api/trends only returned the raw baseline/UCL/LCL numbers and
+    always an empty alerts list — none of the actual Mean/Stdev Trend or Shift
+    judgement logic existed server-side, only in the frontend mock. This
+    brings that logic here so it runs against real measurement data.
+    """
+    values = [point["value"] for point in points]
+    if not values:
+        return []
+
+    alerts: list[dict[str, Any]] = []
+    ucl = baseline_mean + 3 * baseline_std_dev
+    lcl = baseline_mean - 3 * baseline_std_dev
+
+    out_of_control = any(v > ucl or v < lcl for v in values)
+    if out_of_control:
+        alerts.append({
+            "id": f"trend-{site}-ooc",
+            "site": site,
+            "testSuiteName": "ALL",
+            "direction": "SHIFT",
+            "detectedAt": now_iso(),
+            "message": f"量測值超出管制界線（UCL {ucl:.3f} / LCL {lcl:.3f}）",
+        })
+
+    rising_run = longest_run(values, "up")
+    falling_run = longest_run(values, "down")
+    if rising_run >= TREND_CONSECUTIVE_RUN:
+        alerts.append({
+            "id": f"trend-{site}-up",
+            "site": site,
+            "testSuiteName": "ALL",
+            "direction": "UP",
+            "detectedAt": now_iso(),
+            "message": f"Mean Trend Up：連續 {rising_run} 點持續上升，疑似製程漂移",
+        })
+    elif falling_run >= TREND_CONSECUTIVE_RUN:
+        alerts.append({
+            "id": f"trend-{site}-down",
+            "site": site,
+            "testSuiteName": "ALL",
+            "direction": "DOWN",
+            "detectedAt": now_iso(),
+            "message": f"Mean Trend Down：連續 {falling_run} 點持續下降，疑似製程漂移",
+        })
+
+    half = len(values) // 2
+    first_half_std = std_dev(values[:half])
+    second_half_std = std_dev(values[half:])
+    std_ratio = second_half_std / max(first_half_std, 1e-6)
+    if std_ratio > TREND_STDEV_RATIO_UP:
+        alerts.append({
+            "id": f"trend-{site}-std-up",
+            "site": site,
+            "testSuiteName": "ALL",
+            "direction": "SHIFT",
+            "detectedAt": now_iso(),
+            "message": (
+                f"Stdev Trend Up：後半段標準差（{second_half_std:.3f}）是前半段"
+                f"（{first_half_std:.3f}）的 {std_ratio:.1f} 倍，疑似製程穩定性下降"
+            ),
+        })
+    elif std_ratio < TREND_STDEV_RATIO_DOWN:
+        alerts.append({
+            "id": f"trend-{site}-std-down",
+            "site": site,
+            "testSuiteName": "ALL",
+            "direction": "SHIFT",
+            "detectedAt": now_iso(),
+            "message": (
+                f"Stdev Trend Down：後半段標準差（{second_half_std:.3f}）明顯小於前半段"
+                f"（{first_half_std:.3f}），製程波動收斂"
+            ),
+        })
+
+    last_run = values[-TREND_SHIFT_RUN:]
+    if len(last_run) == TREND_SHIFT_RUN and not out_of_control:
+        all_above = all(v > baseline_mean for v in last_run)
+        all_below = all(v < baseline_mean for v in last_run)
+        if all_above or all_below:
+            alerts.append({
+                "id": f"trend-{site}-shift",
+                "site": site,
+                "testSuiteName": "ALL",
+                "direction": "SHIFT",
+                "detectedAt": now_iso(),
+                "message": f"最近 {TREND_SHIFT_RUN} 點全部落在 baseline 平均值同一側，疑似整體位移",
+            })
+
+    return alerts
 
 
 def measurement_to_result(measurement: Measurement) -> TestResultField:
@@ -250,14 +425,53 @@ def build_site_summaries(entries: list[DeviceTestResult]) -> list[dict[str, Any]
     by_site: dict[int, list[DeviceTestResult]] = defaultdict(list)
     for entry in entries:
         by_site[entry.device.site].append(entry)
-    all_values = measurement_values(entries)
-    overall_mean = mean(all_values)
-    summaries = []
-    for site, site_entries in sorted(by_site.items()):
+
+    site_values: dict[int, list[float]] = {}
+    site_means: dict[int, float] = {}
+    for site, site_entries in by_site.items():
         values = measurement_values(site_entries)
-        site_mean = mean(values)
-        deviation = abs(site_mean - overall_mean)
-        anomalous = len(values) >= 5 and deviation > max(std_dev(all_values) * 3, 0.001)
+        site_values[site] = values
+        site_means[site] = mean(values)
+
+    # --- Site Imbalance detection -------------------------------------------------
+    #
+    # The previous rule flagged a site anomalous when its mean deviated from the
+    # POOLED mean of every raw measurement by more than 3 * stdDev(all raw
+    # measurements). That statistic is self-defeating: the very site that is
+    # shifted also inflates the pooled stdDev it is being measured against. With
+    # a shift of +8.5mA / stdDev 1.8 on one site against a 19.5mA / stdDev 0.3
+    # baseline on the other three (the frontend's own demo numbers, see
+    # frontend/src/lib/api/mock.ts), the pooled stdDev balloons to ~3.8, pushing
+    # the 3-sigma threshold to ~11.4 mA — comfortably ABOVE the actual 6.4mA
+    # deviation, so the genuinely bad site would never trip this rule.
+    #
+    # The fix compares SITE MEANS to each other, not to the pooled raw values,
+    # using median + MAD (median absolute deviation) instead of mean + stdDev:
+    # median/MAD is a robust statistic that resists exactly the "the outlier
+    # pollutes its own reference distribution" problem above, because a single
+    # outlier among only 3-4 site means barely moves the median (unlike the
+    # mean) or the MAD (unlike stdDev). This mirrors the ANOVA-style "compare
+    # against peers" approach from the 總架構 planning doc, without needing a
+    # stats dependency (scipy) for F-distribution p-values.
+    #
+    # Caveat: with only 3-4 sites this is an inherently small-sample statistic —
+    # it works well for "one clearly bad site among several normal ones" (the
+    # case that matters for this hackathon) but degrades if two or more sites
+    # are simultaneously bad, or if there are only 2 sites (MAD undefined).
+    means_list = list(site_means.values())
+    robust_center = median(means_list) if len(means_list) >= 3 else mean(means_list)
+    mad = median([abs(m - robust_center) for m in means_list]) if len(means_list) >= 3 else 0.0
+    # 1.4826 is the standard scale factor that makes MAD comparable to stdDev
+    # under a normal-distribution assumption.
+    scaled_mad = max(mad * 1.4826, 1e-6)
+
+    summaries = []
+    for site in sorted(by_site):
+        site_entries = by_site[site]
+        values = site_values[site]
+        site_mean = site_means[site]
+        deviation = abs(site_mean - robust_center)
+        anomalous = len(values) >= 5 and len(means_list) >= 3 and deviation > 3 * scaled_mad
         summaries.append({
             "site": site,
             "count": len(site_entries),
@@ -266,9 +480,10 @@ def build_site_summaries(entries: list[DeviceTestResult]) -> list[dict[str, Any]
             "stdDev": std_dev(values),
             "isAnomalous": anomalous,
             "anomalyReason": (
-                f"Site mean differs from pooled mean by {deviation:.4f}"
+                f"Site mean differs from the other sites' median by {deviation:.4f}"
                 if anomalous else None
             ),
+            "boxplot": five_number_summary(values),
         })
     return summaries
 
@@ -299,11 +514,16 @@ def build_snapshot(entries: list[DeviceTestResult], lot: str, wafer: str) -> dic
     }
 
 
-def bin_breakdown(entries: list[DeviceTestResult], field_name: str) -> list[dict[str, Any]]:
+def bin_breakdown(
+    entries: list[DeviceTestResult],
+    field_name: str,
+    label_fn: Callable[[int], str] | None = None,
+) -> list[dict[str, Any]]:
     counts = Counter(getattr(entry.device, field_name) for entry in entries)
     total = len(entries)
+    label = label_fn or (lambda bin_number: f"Bin {bin_number}")
     return [
-        {"bin": bin_number, "label": f"Bin {bin_number}", "count": count, "ratio": count / total}
+        {"bin": bin_number, "label": label(bin_number), "count": count, "ratio": count / total}
         for bin_number, count in counts.most_common()
     ]
 

@@ -1,0 +1,17 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    {
+      "name": "frontend",
+      "runtimeExecutable": "bash",
+      "runtimeArgs": ["-c", "cd frontend && npm run dev"],
+      "port": 3000
+    },
+    {
+      "name": "backend",
+      "runtimeExecutable": "bash",
+      "runtimeArgs": ["-c", "cd backend && python3 -m venv .venv 2>/dev/null; .venv/bin/pip install -q -r requirements.txt && .venv/bin/uvicorn app.main:app --port 8000"],
+      "port": 8000
+    }
+  ]
+}

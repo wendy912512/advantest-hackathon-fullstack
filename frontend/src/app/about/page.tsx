@@ -1,5 +1,12 @@
+import Link from "next/link";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
+
+// 這一頁是系統架構說明文件，不屬於這次 /reference 介面改版的範圍（reference
+// 設計稿沒有對應頁面），所以維持原本的 shadcn/ui 風格，只補一個簡單的返回
+// 連結——原本靠 RootLayout 裡全域的 <Header/> 才能導覽，但那個 Header 已經
+// 改成 Dashboard/Temperature 頁專用（需要即時 site 資料才能渲染 LOT/WAFER
+// 資訊），不適合套用在這種靜態文件頁。
 
 const EVENT_FLOW = [
   "LOTSTART",
@@ -43,6 +50,9 @@ const GLOSSARY = [
 export default function AboutPage() {
   return (
     <div className="mx-auto max-w-4xl space-y-6 px-6 py-8">
+      <Link href="/" className="text-sm text-muted-foreground hover:text-foreground">
+        ← 返回 Dashboard
+      </Link>
       <div>
         <h1 className="text-xl font-semibold">系統架構</h1>
         <p className="text-sm text-muted-foreground">

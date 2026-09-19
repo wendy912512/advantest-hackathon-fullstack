@@ -1,71 +1,123 @@
 "use client";
 
+import { useEffect, useRef, useState } from "react";
 import { useDashboardSnapshot } from "@/hooks/useDashboardSnapshot";
-import { SiteSummaryCard } from "@/components/features/SiteSummaryCard";
-import { OverviewStats } from "@/app/_components/OverviewStats";
-import { TrendAlertList } from "@/app/_components/TrendAlertList";
-import { RecentResultsTable } from "@/app/_components/RecentResultsTable";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { useTrendSeries } from "@/hooks/useTrendSeries";
+import { useLotList } from "@/hooks/useLotList";
+import { useFailureExplanations } from "@/hooks/useFailureExplanations";
+import type { SiteSummary } from "@/lib/api";
+import { AppShell } from "@/components/common/AppShell";
+import { SectionHeader } from "@/components/common/SectionHeader";
+import { SiteCard } from "@/components/dashboard/SiteCard";
+import { SiteDrawer } from "@/components/dashboard/SiteDrawer";
+import { TrendAlertRow } from "@/components/dashboard/TrendAlertRow";
+import { LotBrowser } from "@/components/dashboard/LotBrowser";
+import { FailureExplainer } from "@/components/dashboard/FailureExplainer";
+import { NotificationPanel } from "@/components/dashboard/NotificationPanel";
+import { C } from "@/lib/theme";
 
 export default function DashboardPage() {
-  const { snapshot, isLoading, error } = useDashboardSnapshot();
+  const { snapshot, isLoading } = useDashboardSnapshot();
+  const { series } = useTrendSeries();
+  const { lots } = useLotList();
+  const { explanations } = useFailureExplanations();
 
-  if (isLoading) {
+  const [tick, setTick] = useState(0);
+  const [drawerSite, setDrawerSite] = useState<SiteSummary | null>(null);
+  const [activeSection, setActiveSection] = useState("s1");
+  const prevGeneratedAt = useRef<string | null>(null);
+
+  // LIVE 徽章上的計數器：每次拿到新的 snapshot（generatedAt 改變）就 +1，
+  // 用來讓使用者感覺到畫面確實在更新，而不是綁在某個固定 interval 上。
+  useEffect(() => {
+    if (snapshot && snapshot.generatedAt !== prevGeneratedAt.current) {
+      prevGeneratedAt.current = snapshot.generatedAt;
+      setTick((t) => t + 1);
+    }
+  }, [snapshot]);
+
+  useEffect(() => {
+    const observer = new IntersectionObserver(
+      (entries) => {
+        entries.forEach((e) => {
+          if (e.isIntersecting) setActiveSection(e.target.id);
+        });
+      },
+      { threshold: 0.3 },
+    );
+    ["s1", "s2", "s3", "s4"].forEach((id) => {
+      const el = document.getElementById(id);
+      if (el) observer.observe(el);
+    });
+    return () => observer.disconnect();
+  }, [isLoading]);
+
+  if (isLoading || !snapshot) {
     return (
-      <div className="mx-auto max-w-6xl px-6 py-10">
-        <p className="text-muted-foreground">載入即時測試資料中…</p>
+      <div style={{ minHeight: "100vh", background: C.bg, display: "flex", alignItems: "center", justifyContent: "center" }}>
+        <span style={{ color: C.muted, fontSize: 14 }}>載入即時測試資料中…</span>
       </div>
     );
   }
 
-  if (!snapshot) {
-    return (
-      <div className="mx-auto max-w-6xl px-6 py-10">
-        <Card>
-          <CardHeader>
-            <CardTitle className="text-base">暫時無法取得即時資料</CardTitle>
-          </CardHeader>
-          <CardContent className="space-y-2 text-sm text-muted-foreground">
-            <p>{error ?? "系統將自動重試。"}</p>
-            <p>請確認後端服務是否已啟動；系統會每 5 秒重新嘗試連線。</p>
-          </CardContent>
-        </Card>
-      </div>
-    );
-  }
+  const trendSeriesWithAlerts = (series ?? []).filter((s) => s.alerts.length > 0);
 
   return (
-    <div className="mx-auto max-w-6xl space-y-6 px-6 py-8">
-      <div>
-        <h1 className="text-xl font-semibold">即時異常監控面板</h1>
-        <p className="text-sm text-muted-foreground">
-          最後更新：{new Date(snapshot.generatedAt).toLocaleTimeString()}（每 5 秒自動更新）
-        </p>
-        {error ? <p className="mt-1 text-sm text-amber-700">{error}</p> : null}
-      </div>
+    <AppShell
+      sites={snapshot.siteSummaries}
+      tick={tick}
+      lastUpdate={new Date(snapshot.generatedAt).toLocaleTimeString("en-GB")}
+      lot={snapshot.currentLot}
+      wafer={snapshot.currentWafer}
+      activeSection={activeSection}
+    >
+      <div style={{ display: "flex", gap: 20, alignItems: "flex-start" }}>
+        <div style={{ flex: 1, minWidth: 0 }}>
+          <div id="s1" style={{ marginBottom: 40 }}>
+            <SectionHeader id="s1" label="Site Status — IDDQ_A1" />
+            <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(200px, 1fr))", gap: 12 }}>
+              {snapshot.siteSummaries.map((s) => (
+                <SiteCard key={s.site} site={s} onClick={() => setDrawerSite(s)} />
+              ))}
+            </div>
+          </div>
 
-      <OverviewStats snapshot={snapshot} />
+          <div id="s2" style={{ marginBottom: 40 }}>
+            <SectionHeader id="s2" label="Trend Alerts" count={trendSeriesWithAlerts.length} />
+            <div className="xl:hidden" style={{ marginBottom: 20 }}>
+              <NotificationPanel alerts={snapshot.trendAlerts} lot={snapshot.currentLot} wafer={snapshot.currentWafer} tick={tick} />
+            </div>
+            {trendSeriesWithAlerts.length === 0 ? (
+              <div style={{ textAlign: "center", padding: "32px 16px", color: C.muted, fontSize: 14, border: `1px solid ${C.border}`, borderRadius: 12, background: C.card }}>
+                目前所有 site 都在管制界線內
+              </div>
+            ) : (
+              trendSeriesWithAlerts.map((s) => <TrendAlertRow key={s.site} series={s} />)
+            )}
+          </div>
 
-      <div className="grid gap-6 lg:grid-cols-3">
-        <div className="space-y-4 lg:col-span-2">
-          <h2 className="text-sm font-medium text-muted-foreground">各 Site 分布狀態</h2>
-          <div className="grid gap-4 sm:grid-cols-2">
-            {snapshot.siteSummaries.map((summary) => (
-              <SiteSummaryCard key={summary.site} summary={summary} />
-            ))}
+          <div id="s3" style={{ marginBottom: 40 }}>
+            <SectionHeader id="s3" label="Lot / Wafer Browser" count={lots?.length} />
+            {lots && lots.length > 0 ? <LotBrowser lots={lots} /> : <div style={{ color: C.muted, fontSize: 14 }}>載入批次資料中…</div>}
+          </div>
+
+          <div id="s4" style={{ marginBottom: 40 }}>
+            <SectionHeader id="s4" label="Failure Explainer" count={explanations?.length} />
+            <FailureExplainer failures={explanations ?? []} />
           </div>
         </div>
-        <TrendAlertList alerts={snapshot.trendAlerts} />
+
+        <div className="hidden xl:block" style={{ width: 324, flexShrink: 0 }} />
       </div>
 
-      <Card>
-        <CardHeader>
-          <CardTitle className="text-base">最新測試結果</CardTitle>
-        </CardHeader>
-        <CardContent>
-          <RecentResultsTable results={snapshot.recentResults} />
-        </CardContent>
-      </Card>
-    </div>
+      <div
+        className="hidden xl:flex flex-col"
+        style={{ position: "fixed", top: 56, right: 0, bottom: 0, width: 324, background: C.bg, borderLeft: `1px solid ${C.border}`, overflowY: "auto", zIndex: 20, padding: "16px 14px" }}
+      >
+        <NotificationPanel alerts={snapshot.trendAlerts} lot={snapshot.currentLot} wafer={snapshot.currentWafer} tick={tick} />
+      </div>
+
+      <SiteDrawer site={drawerSite} allSites={snapshot.siteSummaries} onClose={() => setDrawerSite(null)} />
+    </AppShell>
   );
 }
