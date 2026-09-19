@@ -33,7 +33,7 @@ type SummaryFixtures = {
   explanations: FailureExplanation[];
 };
 
-const summaryFixtures = csvSummaryFixtures as SummaryFixtures;
+const summaryFixtures = csvSummaryFixtures as unknown as SummaryFixtures;
 
 export function getCsvDashboard(): DashboardSnapshot {
   return summaryFixtures.dashboard;
