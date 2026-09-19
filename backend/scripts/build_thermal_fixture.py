@@ -110,3 +110,18 @@ if len(csv_paths) > 1:
     summary_out = out.parent / "csvSummaryFixtures.json"
     summary_out.write_text(json.dumps(summary_fixtures, ensure_ascii=False, separators=(",", ":")), encoding="utf-8")
     print("wrote", summary_out)
+
+    distribution_fixtures = {}
+    for wafer in fail_fixtures:
+        base = runtime_state.wafer_distribution("A12345", wafer)
+        if not base:
+            continue
+        by_event = {}
+        for event in base["events"]:
+            selected = runtime_state.wafer_distribution("A12345", wafer, event["event"])
+            if selected:
+                by_event[event["event"]] = selected
+        distribution_fixtures[wafer] = {"events": base["events"], "byEvent": by_event}
+    distribution_out = out.parent / "csvDistributionFixtures.json"
+    distribution_out.write_text(json.dumps(distribution_fixtures, ensure_ascii=False, separators=(",", ":")), encoding="utf-8")
+    print("wrote", distribution_out, len(distribution_fixtures), "wafer fixtures")

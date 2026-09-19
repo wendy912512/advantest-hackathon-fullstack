@@ -1,6 +1,8 @@
 import type {
   DashboardSnapshot,
   DeviceTestResult,
+  DistributionEvent,
+  WaferDistribution,
   FailureExplanation,
   LotListItem,
   LotSummary,
@@ -17,9 +19,14 @@ import thermalFixture from "./thermalFixture.json";
 import failFixtures from "./failFixtures.json";
 import waferMapFixtures from "./waferMapFixtures.json";
 import csvSummaryFixtures from "./csvSummaryFixtures.json";
+import csvDistributionFixtures from "./csvDistributionFixtures.json";
 
 type FixtureMap = Record<string, WaferMapData>;
 type FailFixture = { events: WaferFails["events"]; rows: WaferFails["rows"] };
+type DistributionFixture = {
+  events: DistributionEvent[];
+  byEvent: Record<string, WaferDistribution>;
+};
 
 const LIVE_LOT = "A12345";
 
@@ -73,6 +80,21 @@ export function getCsvWaferFails(lot: string, wafer: string): WaferFails | undef
   if (lot !== LIVE_LOT) return undefined;
   const fixture = (failFixtures as Record<string, FailFixture>)[wafer];
   return fixture ? { lot, wafer, events: fixture.events, rows: fixture.rows } : undefined;
+}
+
+export function getCsvWaferDistribution(
+  lot: string,
+  wafer: string,
+  selectedEvent?: string,
+): WaferDistribution | undefined {
+  if (lot !== LIVE_LOT) return undefined;
+  const fixture = (csvDistributionFixtures as Record<string, DistributionFixture>)[wafer];
+  if (!fixture) return undefined;
+  const event = selectedEvent && fixture.byEvent[selectedEvent]
+    ? selectedEvent
+    : fixture.events[0]?.event;
+  const selected = event ? fixture.byEvent[event] : undefined;
+  return selected ? { ...selected, lot, wafer, events: fixture.events } : undefined;
 }
 
 const COMPLETED_SENSORS = 3;
