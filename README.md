@@ -53,13 +53,22 @@ NEXT_PUBLIC_API_BASE_URL=http://127.0.0.1:8080/api
 
 本機展示可將題目 CSV 複製到 `backend\data\`。此資料夾已加入 Git 忽略規則，CSV 不會被提交或推送。
 
-後端啟動後，匯入一份資料到即時儀表板：
+### 本機：使用 CSV 備援資料
+
+在啟動後端的同一個 `cmd` 視窗，先設定：
 
 ```cmd
-curl -X POST "http://127.0.0.1:8080/api/internal/import-csv?path=C:\advantest-hackathon-fullstack\backend\data\A12345_W01_RawResult.csv&reset=true&measurement_limit=24"
+set RTDI_USE_CSV_FALLBACK=true
+py -m uvicorn app.main:app --reload --port 8080
 ```
 
-官方 RawResult CSV 每顆 Device 有數千個測項；即時 API 預設載入 24 個有效數值測項，避免瀏覽器回傳過大。完整 CSV 會保留在 `backend\data\`，供後續分析或模型使用。到 ACS 正式串接 OneAPI callback 時，不需要匯入 CSV。
+後端會在啟動時讀取 `backend\data\` 中的一份 CSV，將資料載入記憶體後供網頁顯示。此設定只在目前的終端機視窗有效；關閉視窗或重開終端機後需要重新設定。
+
+### ACS VM：使用 OneAPI 即時事件
+
+**不要設定** `RTDI_USE_CSV_FALLBACK`。即使 `backend\data\` 仍有 CSV，後端也完全不會讀取它，而是等待 OneAPI callback 送入測試事件，再提供給網頁。
+
+官方 RawResult CSV 每顆 Device 有數千個測項；本機備援載入時，儀表板預設保留 24 個有效數值測項，避免瀏覽器回傳過大。完整 CSV 可保留在 `backend\data\` 供後續分析或模型使用。
 
 ## 專案結構
 
