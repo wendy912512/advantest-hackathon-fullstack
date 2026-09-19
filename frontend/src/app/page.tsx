@@ -77,8 +77,8 @@ export default function SitesPage() {
 
   // 換了 lot/wafer 之後，原本選的 site 已經沒有意義，要求使用者重新選一次。
   useEffect(() => {
-    // eslint-disable-next-line react-hooks/set-state-in-effect -- 篩選條件變了，下面的 site 選取狀態本來就要跟著重置
     // 預設選第一個 Site，讓 Table 一進頁面就有明確的上下文。
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- 篩選條件變了，site 選取狀態本來就要跟著重置
     setSelectedSite(1);
   }, [selectedLot, selectedWafer]);
 
