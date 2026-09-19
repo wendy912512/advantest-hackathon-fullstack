@@ -22,7 +22,7 @@ SmarTest 執行測試
 前端啟動方式：
 
 ```cmd
-cd /d C:\advantest-hackathon-fullstack\frontend
+cd frontend
 npm install
 npm run dev
 ```
@@ -34,14 +34,14 @@ npm run dev
 後端位於 `backend/`，請另開終端機執行：
 
 ```cmd
-cd /d C:\advantest-hackathon-fullstack\backend
+cd backend
 py -m venv .venv
 .venv\Scripts\activate.bat
 py -m pip install -r requirements.txt
 py -m uvicorn app.main:app --reload --port 8080
 ```
 
-前端在 `frontend/` 建立 `.env.local`，填入：
+前端在 `frontend/` 建立 `.env`，填入：
 
 ```text
 NEXT_PUBLIC_API_BASE_URL=http://127.0.0.1:8080/api
@@ -51,13 +51,7 @@ NEXT_PUBLIC_API_BASE_URL=http://127.0.0.1:8080/api
 
 ### 題目 CSV 資料
 
-本機展示可將題目 CSV 複製到 `backend\data\`。此資料夾已加入 Git 忽略規則，CSV 不會被提交或推送；原始檔仍保留在 `C:\Users\feng2\Downloads\training\Data`。
-
-```cmd
-cd /d C:\advantest-hackathon-fullstack
-mkdir backend\data
-copy "C:\Users\feng2\Downloads\training\Data\*.csv" backend\data\
-```
+本機展示可將題目 CSV 複製到 `backend\data\`。此資料夾已加入 Git 忽略規則，CSV 不會被提交或推送。
 
 後端啟動後，匯入一份資料到即時儀表板：
 
@@ -92,16 +86,3 @@ frontend/
 FastAPI 的端點格式已建立；OneAPI 實際接入時，將由 `backend/app/oneapi_bridge.py` 從官方 `sample.py` 的回呼函式轉入共享狀態。接入前需以實際 py-app.log 確認事件欄位與 CP／FT 流程。
 
 `frontend/src/lib/api/{dashboard,sites,trends,lots,wafer,explainer,temperature}.ts` 透過 `apiClient` 呼叫 FastAPI；回傳格式以 [frontend/src/lib/api/types.ts](frontend/src/lib/api/types.ts) 為共同規格。`frontend/src/lib/api/mock.ts` 會保留給前端獨立開發使用，不會刪除。
-
-## 常用套件
-
-| 類型 | 套件 |
-| --- | --- |
-| 樣式 | Tailwind CSS |
-| 圖示 | Tabler Icons |
-| 介面元件 | shadcn/ui |
-| HTTP 用戶端 | Axios |
-
-## 部署
-
-可部署到 [Vercel](https://vercel.com) 或其他支援 Next.js 的平台，細節請參考 [Next.js 部署文件](https://nextjs.org/docs/app/building-your-application/deploying)。
