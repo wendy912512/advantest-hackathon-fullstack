@@ -1,7 +1,10 @@
 from __future__ import annotations
 
 import asyncio
+import logging
+import os
 from contextlib import asynccontextmanager
+from pathlib import Path
 
 from fastapi import FastAPI, HTTPException, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
@@ -11,8 +14,29 @@ from .schemas import DeviceTestResult, LotStart, Measurement, WaferStart
 from .state import runtime_state
 
 
+LOGGER = logging.getLogger(__name__)
+
+
+def fallback_csv_path() -> Path | None:
+    """Return a local demo CSV when OneAPI is not producing callbacks yet."""
+    configured_path = os.getenv("RTDI_FALLBACK_CSV")
+    if configured_path:
+        path = Path(configured_path).expanduser()
+        return path if path.is_file() else None
+
+    data_directory = Path(__file__).resolve().parents[1] / "data"
+    return next(iter(sorted(data_directory.glob("*.csv"))), None)
+
+
 @asynccontextmanager
 async def lifespan(_: FastAPI):
+    csv_path = fallback_csv_path()
+    if csv_path is not None:
+        try:
+            import_csv(str(csv_path), measurement_limit=24)
+            LOGGER.info("Loaded local CSV fallback: %s", csv_path.name)
+        except CsvImportError as error:
+            LOGGER.warning("Unable to load local CSV fallback: %s", error)
     yield
 
 
