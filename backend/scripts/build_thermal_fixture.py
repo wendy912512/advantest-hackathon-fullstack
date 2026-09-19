@@ -81,3 +81,12 @@ if len(csv_paths) > 1:
     all_fail_out = out.parent / "failFixtures.json"
     all_fail_out.write_text(json.dumps(fail_fixtures, ensure_ascii=False, separators=(",", ":")), encoding="utf-8")
     print("wrote", all_fail_out, len(fail_fixtures), "wafer fixtures")
+
+    wafer_maps = {}
+    for wafer in fail_fixtures:
+        data = runtime_state.wafer_map("A12345", wafer)
+        if data is not None:
+            wafer_maps[wafer] = data
+    map_out = out.parent / "waferMapFixtures.json"
+    map_out.write_text(json.dumps(wafer_maps, ensure_ascii=False, separators=(",", ":")), encoding="utf-8")
+    print("wrote", map_out, len(wafer_maps), "wafer fixtures")

@@ -23,6 +23,7 @@ import { binLabel } from "@/lib/binLabels";
 import thermalFixture from "./thermalFixture.json";
 import failFixture from "./failFixture.json";
 import failFixtures from "./failFixtures.json";
+import waferMapFixtures from "./waferMapFixtures.json";
 
 // 模擬 ONEAPI consumeData() 收到的即時測試資料。
 // 後端串接後，此檔案可整份移除，改由 lib/api/dashboard.ts、lib/api/sites.ts 呼叫真實 API。
@@ -688,25 +689,11 @@ export function generateLotSummary(lot: string): LotSummary | undefined {
 }
 
 export function generateWaferMapData(lot: string, wafer: string): WaferMapData | undefined {
-  // W01 的即時資料使用 dashboard mock；其餘 W02~W25 使用同一個 A12345
-  // fallback Lot 的 wafer pattern。
-  if (lot === LIVE_LOT && wafer === LIVE_WAFER) {
-    const results = generateMockResults();
-    return {
-      lot,
-      wafer,
-      radius: WAFER_RADIUS,
-      points: results.map((r) => ({
-        pid: r.device.pid,
-        x: r.device.x,
-        y: r.device.y,
-        pf: r.device.pf,
-        softBin: r.device.softBin,
-        site: r.device.site,
-      })),
-    };
-  }
+  const fixture = (waferMapFixtures as Record<string, WaferMapData>)[wafer];
+  if (lot === LIVE_LOT && fixture) return { ...fixture, lot, wafer };
+  if (lot === LIVE_LOT && !findWaferDefinition(lot, wafer)) return undefined;
 
+  if (fixture) return { ...fixture, lot, wafer };
   if (!findWaferDefinition(lot, wafer)) return undefined;
 
   const results = generateWaferDeviceResults(lot, wafer);
