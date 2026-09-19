@@ -6,6 +6,7 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI, HTTPException, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
 
+from .csv_import import CsvImportError, import_csv
 from .schemas import DeviceTestResult, LotStart, Measurement, WaferStart
 from .state import runtime_state
 
@@ -113,3 +114,28 @@ def ingest_measurement(event: Measurement) -> None:
 @app.post("/api/internal/test-end", status_code=204)
 def ingest_test_end(event: DeviceTestResult) -> None:
     runtime_state.record_test_end(event)
+
+
+@app.post("/api/internal/import-csv")
+def import_local_csv(
+    path: str,
+    reset: bool = True,
+    lot: str | None = None,
+    wafer: str | None = None,
+    measurement_limit: int = 24,
+) -> dict:
+    """Load a local test-log CSV into the runtime dashboard state.
+
+    This endpoint is intentionally for local development and demos. Production
+    ACS data should enter through the OneAPI callback adapters above instead.
+    """
+    try:
+        return import_csv(
+            path,
+            lot_override=lot,
+            wafer_override=wafer,
+            reset=reset,
+            measurement_limit=max(1, min(measurement_limit, 100)),
+        )
+    except CsvImportError as error:
+        raise HTTPException(status_code=400, detail=str(error)) from error

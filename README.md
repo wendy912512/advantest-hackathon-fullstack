@@ -21,28 +21,29 @@ backend/
 ├── app/main.py              # FastAPI 路由與 WebSocket 即時串流
 ├── app/state.py             # OneAPI 回呼與網頁 API 共用的即時狀態
 ├── app/oneapi_bridge.py     # 接入官方 sample.py 的 OneAPI 轉接層
-└── requirements.txt
+├── app/csv_import.py        # 題目 RawResult CSV 匯入器
+└── data/                    # 本機 CSV；已忽略，不會進 Git
 
 frontend/
-├── package.json             # Next.js 前端套件設定
-├── .env.local.example       # 前端 API 位址範例
+├── .env.local               # 本機前端 API 位址，已忽略
+├── package.json
 └── src/
-    ├── app/                 # 儀表板與各功能頁面
-    ├── components/          # 共用介面元件
-    ├── hooks/               # 前端資料輪詢
-    └── lib/api/             # 前端 API 呼叫與型別
 ```
 
 ## 本機啟動
 
 ### 前端
 
-在 `frontend/` 建立 `.env`：
+在 `frontend\.env.local` 建立：
+
+```text
+NEXT_PUBLIC_API_BASE_URL=http://127.0.0.1:8080/api
+```
 
 接著執行：
 
 ```cmd
-cd frontend
+cd /d C:\advantest-hackathon-fullstack\frontend
 npm install
 npm run dev
 ```
@@ -54,7 +55,7 @@ npm run dev
 另開終端機執行：
 
 ```cmd
-cd backend
+cd /d C:\advantest-hackathon-fullstack\backend
 py -m venv .venv
 .venv\Scripts\activate.bat
 py -m pip install -r requirements.txt
@@ -63,11 +64,28 @@ py -m uvicorn app.main:app --reload --port 8080
 
 健康檢查：<http://127.0.0.1:8080/health>。
 
+### 題目 CSV 資料
+
+本機展示可將題目 CSV 複製到 `backend\data\`。此資料夾已加入 Git 忽略規則，CSV 不會被提交或推送；原始檔仍保留在 `C:\Users\feng2\Downloads\training\Data`。
+
+```cmd
+cd /d C:\advantest-hackathon-fullstack
+mkdir backend\data
+copy "C:\Users\feng2\Downloads\training\Data\*.csv" backend\data\
+```
+
+後端啟動後，匯入一份資料到即時儀表板：
+
+```cmd
+curl -X POST "http://127.0.0.1:8080/api/internal/import-csv?path=C:\advantest-hackathon-fullstack\backend\data\A12345_W01_RawResult.csv&reset=true&measurement_limit=24"
+```
+
+官方 RawResult CSV 每顆 Device 有數千個測項；即時 API 預設載入 24 個有效數值測項，避免瀏覽器回傳過大。完整 CSV 保留在 `backend\data\`，供後續分析或模型使用。到 ACS 正式串接 OneAPI callback 時，不需要匯入 CSV。
+
 ## 目前整合狀態
 
 - 前端已透過 `frontend/src/lib/api/` 呼叫 FastAPI 的 dashboard、site、lot、wafer、trend、temperature 與失敗說明 API。
 - 後端目前以記憶體保存即時事件；服務重啟後資料會清空，因此競賽展示階段不需要自行建立資料庫。
-- `frontend/src/lib/api/mock.ts` 仍保留給前端獨立開發使用，不會刪除。
 - 實際部署時，將由 `backend/app/oneapi_bridge.py` 從官方 `sample.py` 的回呼函式寫入共享狀態。
 
 ## 待完成項目
