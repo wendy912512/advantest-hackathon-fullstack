@@ -20,12 +20,6 @@ export default function WafersPage() {
   const [selectedEvent, setSelectedEvent] = useState("");
 
   useEffect(() => {
-    if (dashboard && !selectedLot) {
-      setSelectedLot(dashboard.currentLot);
-    }
-  }, [dashboard, selectedLot]);
-
-  useEffect(() => {
     if (!selectedLot) return;
     let cancelled = false;
     fetchLotSummary(selectedLot).then((data) => {
@@ -45,7 +39,6 @@ export default function WafersPage() {
   useEffect(() => {
     if (!selectedLot || !selectedWafers.length) return;
     let cancelled = false;
-    setDistribution([]);
     Promise.all(
       selectedWafers.map((wafer) =>
         fetchWaferDistribution(selectedLot, wafer, selectedEvent || undefined),
