@@ -1,0 +1,604 @@
+<!doctype html>
+<html lang="zh-Hant">
+<head>
+<meta charset="UTF-8" />
+<title>RTDI 整合控制台</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --bg: #0B0F14;
+    --surface: #131A21;
+    --surface-raised: #1B232C;
+    --surface-hover: #212B35;
+    --border: #2A343F;
+    --border-soft: #202832;
+    --text: #E8EDF2;
+    --text-muted: #8B98A5;
+    --text-faint: #5C6B78;
+    --accent: #3ED6C4;
+    --accent-dim: rgba(62, 214, 196, 0.14);
+    --accent-text: #0B0F14;
+    --pass: #6BCB77;
+    --pass-dim: rgba(107, 203, 119, 0.14);
+    --warn: #F5A623;
+    --warn-dim: rgba(245, 166, 35, 0.14);
+    --fail: #F2545B;
+    --fail-dim: rgba(242, 84, 91, 0.16);
+    --font-ui: "IBM Plex Sans", -apple-system, "Segoe UI", sans-serif;
+    --font-mono: "IBM Plex Mono", ui-monospace, "SFMono-Regular", Menlo, monospace;
+  }
+
+  :root[data-theme="light"] {
+    --bg: #F1F4F6;
+    --surface: #FFFFFF;
+    --surface-raised: #FFFFFF;
+    --surface-hover: #F5F8F9;
+    --border: #DCE3E8;
+    --border-soft: #E7ECEF;
+    --text: #16202A;
+    --text-muted: #5B6B77;
+    --text-faint: #8C99A3;
+    --accent: #0E9C90;
+    --accent-dim: rgba(14, 156, 144, 0.1);
+    --accent-text: #FFFFFF;
+    --pass: #2E9E52;
+    --pass-dim: rgba(46, 158, 82, 0.1);
+    --warn: #B87700;
+    --warn-dim: rgba(184, 119, 0, 0.1);
+    --fail: #D33F3F;
+    --fail-dim: rgba(211, 63, 63, 0.1);
+  }
+
+  @media (prefers-color-scheme: light) {
+    :root:not([data-theme="dark"]) {
+      --bg: #F1F4F6;
+      --surface: #FFFFFF;
+      --surface-raised: #FFFFFF;
+      --surface-hover: #F5F8F9;
+      --border: #DCE3E8;
+      --border-soft: #E7ECEF;
+      --text: #16202A;
+      --text-muted: #5B6B77;
+      --text-faint: #8C99A3;
+      --accent: #0E9C90;
+      --accent-dim: rgba(14, 156, 144, 0.1);
+      --accent-text: #FFFFFF;
+      --pass: #2E9E52;
+      --pass-dim: rgba(46, 158, 82, 0.1);
+      --warn: #B87700;
+      --warn-dim: rgba(184, 119, 0, 0.1);
+      --fail: #D33F3F;
+      --fail-dim: rgba(211, 63, 63, 0.1);
+    }
+  }
+
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    background: var(--bg);
+    color: var(--text);
+    font-family: var(--font-ui);
+    font-size: 14px;
+    line-height: 1.5;
+    -webkit-font-smoothing: antialiased;
+  }
+  .tabular { font-variant-numeric: tabular-nums; }
+  .mono { font-family: var(--font-mono); }
+
+  .shell {
+    max-width: 1440px;
+    margin: 0 auto;
+    padding-inline: 20px;
+    padding-block: 18px 40px;
+  }
+
+  /* ---------- Top bar ---------- */
+  .topbar {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 16px;
+    flex-wrap: wrap;
+    padding-bottom: 16px;
+    border-bottom: 1px solid var(--border-soft);
+    margin-bottom: 18px;
+  }
+  .brand { display: flex; align-items: center; gap: 10px; }
+  .brand .mark {
+    width: 30px; height: 30px; border-radius: 7px;
+    background: var(--accent-dim);
+    display: flex; align-items: center; justify-content: center;
+    color: var(--accent);
+  }
+  .brand .mark svg { width: 17px; height: 17px; }
+  .brand-text { display: flex; flex-direction: column; line-height: 1.15; }
+  .brand-text .name { font-weight: 600; font-size: 14.5px; letter-spacing: 0.01em; }
+  .brand-text .sub { font-size: 11px; color: var(--text-faint); }
+
+  .topbar-meta {
+    display: flex; align-items: center; gap: 22px;
+    color: var(--text-muted); font-size: 12.5px;
+  }
+  .topbar-meta .item { display: flex; flex-direction: column; gap: 2px; align-items: flex-end; }
+  .topbar-meta .item .k { color: var(--text-faint); font-size: 10.5px; text-transform: uppercase; letter-spacing: 0.06em; }
+  .topbar-meta .item .v { color: var(--text); font-weight: 500; }
+  .live-dot {
+    width: 7px; height: 7px; border-radius: 50%; background: var(--pass);
+    box-shadow: 0 0 0 3px var(--pass-dim);
+    display: inline-block; margin-right: 6px;
+    animation: pulse-dot 2.2s ease-in-out infinite;
+  }
+  @keyframes pulse-dot {
+    0%, 100% { opacity: 1; } 50% { opacity: 0.45; }
+  }
+
+  .nav-strip {
+    display: flex; gap: 4px; margin-top: 14px; flex-wrap: wrap;
+  }
+  .nav-strip a {
+    font-size: 12.5px; color: var(--text-muted); text-decoration: none;
+    padding: 6px 12px; border-radius: 6px; border: 1px solid transparent;
+  }
+  .nav-strip a.active { background: var(--surface-raised); color: var(--text); border-color: var(--border); }
+
+  h1.page-title { font-size: 19px; font-weight: 600; margin: 4px 0 3px; text-wrap: balance; }
+  .page-desc { color: var(--text-muted); font-size: 12.5px; max-width: 74ch; margin: 0 0 20px; }
+
+  /* ---------- Hero grid: rail / center / rail ---------- */
+  .hero {
+    display: grid;
+    grid-template-columns: 250px minmax(0, 1fr) 280px;
+    gap: 14px;
+    margin-bottom: 14px;
+  }
+  @media (max-width: 1080px) {
+    .hero { grid-template-columns: 1fr; }
+  }
+
+  .panel {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+  }
+  .panel-pad { padding: 14px 16px; }
+  .panel-head {
+    display: flex; align-items: center; justify-content: space-between;
+    padding: 12px 14px 10px;
+    border-bottom: 1px solid var(--border-soft);
+  }
+  .panel-head h2 { font-size: 12px; font-weight: 600; margin: 0; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.06em; }
+  .panel-head .hint { font-size: 11px; color: var(--text-faint); }
+
+  /* Left / right rail stacks */
+  .rail { display: flex; flex-direction: column; gap: 10px; }
+
+  .site-tile {
+    display: flex; align-items: center; justify-content: space-between;
+    padding: 11px 13px; border-radius: 8px;
+    background: var(--surface-raised);
+    border: 1px solid var(--border-soft);
+  }
+  .site-tile.is-fail { background: var(--fail-dim); border-color: rgba(242,84,91,0.4); }
+  .site-tile .id { font-size: 12px; color: var(--text-muted); }
+  .site-tile .id b { color: var(--text); font-weight: 600; }
+  .site-tile .stat { text-align: right; }
+  .site-tile .stat .num { font-family: var(--font-mono); font-size: 15px; font-weight: 500; }
+  .site-tile .stat .lbl { font-size: 10px; color: var(--text-faint); }
+  .site-tile.is-fail .stat .num { color: var(--fail); }
+
+  .lot-card { padding: 14px 16px; }
+  .lot-card .row { display: flex; justify-content: space-between; padding: 7px 0; border-bottom: 1px dashed var(--border-soft); font-size: 12.5px; }
+  .lot-card .row:last-child { border-bottom: none; }
+  .lot-card .row .k { color: var(--text-faint); }
+  .lot-card .row .v { font-family: var(--font-mono); color: var(--text); }
+
+  /* ---------- Center: machine schematic ---------- */
+  .machine-panel { display: flex; flex-direction: column; }
+  .machine-stage {
+    position: relative;
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 0;
+    padding: 22px 10px 6px;
+    min-height: 380px;
+  }
+
+  /* --- Isometric machine housing (CSS-only pseudo-3D, no WebGL) --- */
+  .iso-stage {
+    position: relative;
+    width: 240px;
+    height: 148px;
+    margin-bottom: 6px;
+  }
+  .iso-cube {
+    position: absolute;
+    left: 50%;
+    top: 18px;
+    transform: translateX(-50%);
+    width: 156px;
+  }
+  .iso-face.top {
+    height: 56px;
+    background: linear-gradient(160deg, var(--surface-hover), var(--surface-raised));
+    transform: skewX(-22deg);
+    transform-origin: bottom left;
+    border-radius: 5px 12px 4px 4px;
+    border: 1px solid var(--border-soft);
+  }
+  .iso-face.front {
+    height: 44px;
+    margin-top: -1px;
+    background: var(--surface-raised);
+    filter: brightness(0.7);
+    border-radius: 0 0 5px 5px;
+    border: 1px solid var(--border-soft);
+    border-top: none;
+  }
+  .iso-vents {
+    position: absolute; left: 18px; top: 22px;
+    width: 56px; display: flex; flex-direction: column; gap: 5px; opacity: 0.55;
+  }
+  .iso-vents span { display: block; height: 2px; background: var(--text-faint); border-radius: 1px; }
+
+  .site-pin {
+    position: absolute;
+    display: flex; flex-direction: column; align-items: center; gap: 3px;
+    z-index: 3;
+  }
+  .site-pin .stem { width: 2px; height: 22px; background: var(--border); margin-bottom: -1px; }
+  .site-pin .lamp {
+    width: 15px; height: 15px; border-radius: 50%;
+    background: var(--pass);
+    box-shadow: 0 0 0 3px var(--pass-dim), 0 2px 5px rgba(0,0,0,0.35);
+  }
+  .site-pin.fail .lamp {
+    background: var(--fail);
+    box-shadow: 0 0 0 3px var(--fail-dim), 0 2px 5px rgba(0,0,0,0.35);
+    animation: lamp-alert 1.7s ease-in-out infinite;
+  }
+  @keyframes lamp-alert {
+    0%, 100% { box-shadow: 0 0 0 3px var(--fail-dim), 0 2px 5px rgba(0,0,0,0.35); }
+    50% { box-shadow: 0 0 0 7px transparent, 0 2px 5px rgba(0,0,0,0.35); }
+  }
+  .site-pin .tag { font-size: 10px; font-family: var(--font-mono); color: var(--text-muted); }
+  .site-pin .tag b { color: var(--text); }
+  .site-pin.fail .tag b { color: var(--fail); }
+
+  .site-pin.p1 { top: -2px; left: 50%; transform: translateX(-50%); }
+  .site-pin.p2 { top: 46px; right: 20px; }
+  .site-pin.p3 { top: 108px; left: 50%; transform: translateX(-50%); }
+  .site-pin.p4 { top: 46px; left: 20px; }
+
+  .iso-shadow {
+    position: absolute; bottom: 6px; left: 50%; transform: translateX(-50%);
+    width: 130px; height: 16px; border-radius: 50%;
+    background: radial-gradient(ellipse at center, rgba(0,0,0,0.28), transparent 70%);
+  }
+
+  .iso-beam {
+    width: 2px; height: 20px;
+    background: linear-gradient(var(--border), transparent);
+  }
+
+  .wafer-wrap { position: relative; width: 168px; height: 168px; margin-top: 4px; }
+  .wafer-wrap svg { width: 100%; height: 100%; }
+  .wafer-core-label {
+    position: absolute; inset: 0; display: flex; flex-direction: column;
+    align-items: center; justify-content: center; pointer-events: none;
+  }
+  .wafer-core-label .pct { font-family: var(--font-mono); font-size: 21px; font-weight: 600; }
+  .wafer-core-label .cap { font-size: 10px; color: var(--text-faint); text-transform: uppercase; letter-spacing: 0.06em; margin-top: 2px; }
+
+  .machine-readouts {
+    display: grid; grid-template-columns: repeat(4, 1fr); gap: 10px;
+    padding: 14px 16px 16px; border-top: 1px solid var(--border-soft);
+  }
+  .readout { display: flex; flex-direction: column; gap: 3px; }
+  .readout .lbl { font-size: 10.5px; color: var(--text-faint); text-transform: uppercase; letter-spacing: 0.05em; }
+  .readout .val { font-family: var(--font-mono); font-size: 19px; font-weight: 600; }
+  .readout .val small { font-size: 11px; font-weight: 400; color: var(--text-muted); margin-left: 2px; }
+  .readout.crit .val { color: var(--fail); }
+  .readout.warn .val { color: var(--warn); }
+
+  /* Alert list */
+  .alert-item { display: flex; gap: 8px; padding: 9px 0; border-bottom: 1px solid var(--border-soft); }
+  .alert-item:last-child { border-bottom: none; }
+  .alert-dot { width: 6px; height: 6px; border-radius: 50%; margin-top: 5px; flex-shrink: 0; }
+  .alert-dot.fail { background: var(--fail); }
+  .alert-dot.warn { background: var(--warn); }
+  .alert-item .txt { font-size: 12px; }
+  .alert-item .txt .head { font-weight: 500; color: var(--text); }
+  .alert-item .txt .body { color: var(--text-muted); }
+  .alert-item .time { font-size: 10.5px; color: var(--text-faint); font-family: var(--font-mono); white-space: nowrap; }
+
+  .badge {
+    display: inline-flex; align-items: center; gap: 5px;
+    font-size: 11px; font-weight: 500; padding: 3px 9px; border-radius: 20px;
+  }
+  .badge.fail { background: var(--fail-dim); color: var(--fail); }
+  .badge.warn { background: var(--warn-dim); color: var(--warn); }
+  .badge.pass { background: var(--pass-dim); color: var(--pass); }
+
+  /* ---------- Analytics row ---------- */
+  .analytics {
+    display: grid;
+    grid-template-columns: 1.3fr 1fr 1fr;
+    gap: 14px;
+  }
+  @media (max-width: 1080px) { .analytics { grid-template-columns: 1fr; } }
+
+  .chart-box { padding: 12px 14px 14px; }
+  .chart-box svg { width: 100%; height: auto; display: block; }
+  .legend { display: flex; gap: 14px; margin-top: 8px; font-size: 11px; color: var(--text-muted); }
+  .legend .sw { display: inline-block; width: 9px; height: 9px; border-radius: 2px; margin-right: 5px; }
+
+  .bar-row { display: flex; align-items: center; gap: 10px; padding: 6px 0; }
+  .bar-row .name { width: 92px; flex-shrink: 0; font-size: 11.5px; color: var(--text-muted); }
+  .bar-track { flex: 1; height: 8px; border-radius: 4px; background: var(--border-soft); overflow: hidden; }
+  .bar-fill { height: 100%; border-radius: 4px; background: var(--pass); }
+  .bar-fill.fail { background: var(--fail); }
+  .bar-row .count { width: 78px; text-align: right; font-family: var(--font-mono); font-size: 11.5px; color: var(--text-muted); flex-shrink: 0; }
+
+  table.tick { width: 100%; border-collapse: collapse; font-size: 12px; }
+  table.tick th { text-align: left; font-size: 10.5px; text-transform: uppercase; letter-spacing: 0.05em; color: var(--text-faint); font-weight: 500; padding: 0 0 8px; }
+  table.tick td { padding: 7px 0; border-top: 1px solid var(--border-soft); }
+  table.tick td.mono { font-family: var(--font-mono); }
+  table.tick tr:first-child td { border-top: none; }
+
+  .footer-note {
+    margin-top: 28px; padding: 14px 16px; border-radius: 10px;
+    background: var(--surface); border: 1px solid var(--border);
+    font-size: 12px; color: var(--text-muted); display: flex; gap: 10px; align-items: flex-start;
+  }
+  .footer-note b { color: var(--text); }
+</style>
+</head>
+<body>
+<div class="shell">
+
+  <div class="topbar">
+    <div class="brand">
+      <div class="mark">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M3 12h4l2 7 4-14 2 7h6"/></svg>
+      </div>
+      <div class="brand-text">
+        <span class="name">RTDI 整合控制台</span>
+        <span class="sub">場景一 · 即時異常監控</span>
+      </div>
+    </div>
+    <div class="topbar-meta">
+      <div class="item"><span class="k">Lot</span><span class="v mono">LOT-2026-0093</span></div>
+      <div class="item"><span class="k">Wafer</span><span class="v mono">W07</span></div>
+      <div class="item"><span class="k">狀態</span><span class="v"><span class="live-dot"></span>連線中</span></div>
+    </div>
+  </div>
+
+  <nav class="nav-strip" aria-label="分頁">
+    <a class="active" href="#">監控台</a>
+    <a href="#">批次品質</a>
+    <a href="#">結果解釋器</a>
+    <a href="#">系統架構</a>
+  </nav>
+
+  <h1 class="page-title">即時異常監控 — 整合視圖</h1>
+  <p class="page-desc">把 4 個 site 的即時狀態、趨勢告警、溫度預測與最新事件整合在同一畫面，不用再切分頁比對——提案：把儀表板／趨勢預警／結果解釋器／溫度預測合併成這一個畫面。</p>
+
+  <!-- ===== HERO: left rail / machine / right rail ===== -->
+  <div class="hero">
+
+    <!-- LEFT RAIL -->
+    <div class="rail">
+      <div class="panel lot-card">
+        <div class="row"><span class="k">測試機台</span><span class="v">93K-SOC #4</span></div>
+        <div class="row"><span class="k">測項</span><span class="v">IDDQ_A1 · IO1</span></div>
+        <div class="row"><span class="k">Spec</span><span class="v">12.1–30.0 mA</span></div>
+        <div class="row"><span class="k">已測數</span><span class="v">240</span></div>
+      </div>
+
+      <div class="panel">
+        <div class="panel-head"><h2>Site 狀態</h2></div>
+        <div class="panel-pad rail" style="padding-top:10px">
+          <div class="site-tile">
+            <span class="id">Site <b>1</b></span>
+            <span class="stat"><span class="num tabular">19.45</span><br><span class="lbl">mA · 100% pass</span></span>
+          </div>
+          <div class="site-tile">
+            <span class="id">Site <b>3</b></span>
+            <span class="stat"><span class="num tabular">19.50</span><br><span class="lbl">mA · 100% pass</span></span>
+          </div>
+          <div class="site-tile">
+            <span class="id">Site <b>4</b></span>
+            <span class="stat"><span class="num tabular">19.57</span><br><span class="lbl">mA · 100% pass</span></span>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- CENTER: machine schematic -->
+    <div class="panel machine-panel">
+      <div class="panel-head">
+        <h2>測試機台即時狀態</h2>
+        <span class="hint">4-Site 並行 · 每 5 秒更新</span>
+      </div>
+
+      <div class="machine-stage">
+
+        <div class="iso-stage">
+          <div class="iso-shadow"></div>
+          <div class="iso-cube">
+            <div class="iso-face top"></div>
+            <div class="iso-face front"></div>
+            <div class="iso-vents"><span></span><span></span><span></span></div>
+          </div>
+          <div class="site-pin p1"><span class="stem"></span><span class="lamp"></span><span class="tag"><b>S1</b> 19.5</span></div>
+          <div class="site-pin p2 fail"><span class="stem"></span><span class="lamp"></span><span class="tag"><b>S2</b> 28.0</span></div>
+          <div class="site-pin p3"><span class="stem"></span><span class="lamp"></span><span class="tag"><b>S3</b> 19.5</span></div>
+          <div class="site-pin p4"><span class="stem"></span><span class="lamp"></span><span class="tag"><b>S4</b> 19.6</span></div>
+        </div>
+        <div class="iso-beam"></div>
+
+        <div class="wafer-wrap">
+          <svg viewBox="0 0 210 210">
+            <circle cx="105" cy="105" r="96" fill="none" stroke="var(--border)" stroke-width="1.5"/>
+            <line x1="105" y1="201" x2="105" y2="211" stroke="var(--border)" stroke-width="2"/>
+            <!-- scattered dies: mostly pass, cluster of fail near one edge (site 2 quadrant, right side) -->
+            <g>
+              <!-- pass dots -->
+              <circle cx="70" cy="50" r="2.6" fill="var(--text-faint)" opacity="0.55"/>
+              <circle cx="95" cy="35" r="2.6" fill="var(--text-faint)" opacity="0.55"/>
+              <circle cx="120" cy="42" r="2.6" fill="var(--text-faint)" opacity="0.55"/>
+              <circle cx="60" cy="80" r="2.6" fill="var(--text-faint)" opacity="0.55"/>
+              <circle cx="85" cy="70" r="2.6" fill="var(--text-faint)" opacity="0.55"/>
+              <circle cx="105" cy="65" r="2.6" fill="var(--text-faint)" opacity="0.55"/>
+              <circle cx="55" cy="110" r="2.6" fill="var(--text-faint)" opacity="0.55"/>
+              <circle cx="75" cy="105" r="2.6" fill="var(--text-faint)" opacity="0.55"/>
+              <circle cx="60" cy="140" r="2.6" fill="var(--text-faint)" opacity="0.55"/>
+              <circle cx="85" cy="150" r="2.6" fill="var(--text-faint)" opacity="0.55"/>
+              <circle cx="110" cy="160" r="2.6" fill="var(--text-faint)" opacity="0.55"/>
+              <circle cx="100" cy="120" r="2.6" fill="var(--text-faint)" opacity="0.55"/>
+              <circle cx="130" cy="150" r="2.6" fill="var(--text-faint)" opacity="0.55"/>
+              <circle cx="135" cy="70" r="2.6" fill="var(--text-faint)" opacity="0.55"/>
+              <!-- fail cluster: right edge quadrant (Site 2) -->
+              <circle cx="150" cy="90" r="3" fill="var(--fail)"/>
+              <circle cx="165" cy="100" r="3" fill="var(--fail)"/>
+              <circle cx="158" cy="115" r="3" fill="var(--fail)"/>
+              <circle cx="172" cy="120" r="3" fill="var(--fail)"/>
+              <circle cx="150" cy="130" r="3" fill="var(--fail)"/>
+              <circle cx="163" cy="140" r="3" fill="var(--fail)"/>
+              <circle cx="140" cy="105" r="2.6" fill="var(--text-faint)" opacity="0.55"/>
+              <circle cx="145" cy="150" r="2.6" fill="var(--text-faint)" opacity="0.55"/>
+            </g>
+            <!-- quadrant divider hint -->
+            <path d="M105 9 A96 96 0 0 1 201 105" fill="none" stroke="var(--fail)" stroke-width="1" stroke-dasharray="2 3" opacity="0.35"/>
+          </svg>
+          <div class="wafer-core-label">
+            <span class="pct tabular">95.8%</span>
+            <span class="cap">Pass Rate</span>
+          </div>
+        </div>
+
+      </div>
+
+      <div class="machine-readouts">
+        <div class="readout">
+          <span class="lbl">整體良率</span>
+          <span class="val tabular">95.8<small>%</small></span>
+        </div>
+        <div class="readout crit">
+          <span class="lbl">異常 Site</span>
+          <span class="val tabular">1<small>/4</small></span>
+        </div>
+        <div class="readout warn">
+          <span class="lbl">預測溫度峰值</span>
+          <span class="val tabular">88.9<small>°C</small></span>
+        </div>
+        <div class="readout">
+          <span class="lbl">已通知機台</span>
+          <span class="val tabular">1<small>則</small></span>
+        </div>
+      </div>
+    </div>
+
+    <!-- RIGHT RAIL -->
+    <div class="rail">
+      <div class="panel">
+        <div class="panel-head">
+          <h2>Site 2 · 異常詳情</h2>
+          <span class="badge fail">imbalance</span>
+        </div>
+        <div class="panel-pad">
+          <div style="display:flex; justify-content:space-between; align-items:baseline; margin-bottom:8px;">
+            <span class="mono tabular" style="font-size:22px; font-weight:600; color:var(--fail);">28.02<small style="font-size:12px;color:var(--text-faint)"> mA</small></span>
+            <span style="font-size:11px; color:var(--text-faint);">std 1.85</span>
+          </div>
+          <p style="margin:0 0 6px; font-size:12px; color:var(--text-muted);">平均值偏離整體 6.38 mA，疑似 site imbalance。預測溫度 88.9°C，已超出 85°C 通知門檻。</p>
+        </div>
+      </div>
+
+      <div class="panel">
+        <div class="panel-head"><h2>異常告警</h2><span class="hint">4 則</span></div>
+        <div class="panel-pad" style="padding-top:6px;">
+          <div class="alert-item">
+            <span class="alert-dot fail"></span>
+            <div class="txt"><div class="head">Site 2 · Site imbalance</div><div class="body">平均值偏離整體 6.38 mA</div></div>
+          </div>
+          <div class="alert-item">
+            <span class="alert-dot fail"></span>
+            <div class="txt"><div class="head">Site 2 · 已通知機台</div><div class="body">預測溫度 88.9°C，建議降速</div></div>
+          </div>
+          <div class="alert-item">
+            <span class="alert-dot warn"></span>
+            <div class="txt"><div class="head">Site 3 · 超出管制界線</div><div class="body">UCL 22.15 / LCL 18.55</div></div>
+          </div>
+          <div class="alert-item">
+            <span class="alert-dot warn"></span>
+            <div class="txt"><div class="head">Site 3 · 持續上升</div><div class="body">連續 6 點單邊上升，疑似漂移</div></div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ===== ANALYTICS ROW ===== -->
+  <div class="analytics">
+
+    <div class="panel chart-box">
+      <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:8px;">
+        <h2 style="font-size:12px; font-weight:600; color:var(--text-muted); text-transform:uppercase; letter-spacing:.06em; margin:0;">趨勢預警 · Site 2 / 3</h2>
+        <span class="hint" style="font-size:11px;color:var(--text-faint);">UCL/LCL ±3σ</span>
+      </div>
+      <svg viewBox="0 0 460 150" preserveAspectRatio="none">
+        <!-- grid -->
+        <line x1="0" y1="20" x2="460" y2="20" stroke="var(--border-soft)" stroke-width="1"/>
+        <line x1="0" y1="75" x2="460" y2="75" stroke="var(--border-soft)" stroke-width="1" stroke-dasharray="2 3"/>
+        <line x1="0" y1="130" x2="460" y2="130" stroke="var(--border-soft)" stroke-width="1"/>
+        <!-- UCL/LCL band for site3 -->
+        <rect x="0" y="55" width="460" height="40" fill="var(--accent-dim)" opacity="0.4"/>
+        <!-- site3 rising trend line -->
+        <polyline points="0,95 40,92 80,88 120,86 160,80 200,75 240,68 280,60 320,54 360,45 400,38 440,30" fill="none" stroke="var(--warn)" stroke-width="2.2"/>
+        <!-- site2 flat-high line -->
+        <polyline points="0,25 40,27 80,24 120,26 160,23 200,25 240,22 280,24 320,23 360,25 400,22 440,24" fill="none" stroke="var(--fail)" stroke-width="2.2"/>
+        <circle cx="440" cy="24" r="3.2" fill="var(--fail)"/>
+        <circle cx="440" cy="30" r="3.2" fill="var(--warn)"/>
+      </svg>
+      <div class="legend">
+        <span><span class="sw" style="background:var(--fail)"></span>Site 2（imbalance）</span>
+        <span><span class="sw" style="background:var(--warn)"></span>Site 3（漂移中）</span>
+        <span><span class="sw" style="background:var(--accent)"></span>管制界線範圍</span>
+      </div>
+    </div>
+
+    <div class="panel chart-box">
+      <h2 style="font-size:12px; font-weight:600; color:var(--text-muted); text-transform:uppercase; letter-spacing:.06em; margin:0 0 10px;">Soft Bin 分布</h2>
+      <div class="bar-row"><span class="name">Bin 1 · Pass</span><div class="bar-track"><div class="bar-fill" style="width:96%"></div></div><span class="count tabular">230 (95.8%)</span></div>
+      <div class="bar-row"><span class="name">Bin 2 · Leakage</span><div class="bar-track"><div class="bar-fill fail" style="width:5%"></div></div><span class="count tabular">6 (2.5%)</span></div>
+      <div class="bar-row"><span class="name">Bin 3 · Timing</span><div class="bar-track"><div class="bar-fill fail" style="width:3%"></div></div><span class="count tabular">3 (1.3%)</span></div>
+      <div class="bar-row"><span class="name">Bin 4 · Function</span><div class="bar-track"><div class="bar-fill fail" style="width:2%"></div></div><span class="count tabular">1 (0.4%)</span></div>
+    </div>
+
+    <div class="panel chart-box">
+      <h2 style="font-size:12px; font-weight:600; color:var(--text-muted); text-transform:uppercase; letter-spacing:.06em; margin:0 0 8px;">最新事件</h2>
+      <table class="tick">
+        <thead><tr><th>PID</th><th>Site</th><th>值</th><th>結果</th></tr></thead>
+        <tbody>
+          <tr><td class="mono">…00286</td><td>2</td><td class="mono tabular">32.08</td><td><span class="badge fail">FAIL</span></td></tr>
+          <tr><td class="mono">…00322</td><td>2</td><td class="mono tabular">30.15</td><td><span class="badge fail">FAIL</span></td></tr>
+          <tr><td class="mono">…00719</td><td>3</td><td class="mono tabular">19.39</td><td><span class="badge pass">PASS</span></td></tr>
+          <tr><td class="mono">…00720</td><td>4</td><td class="mono tabular">20.15</td><td><span class="badge pass">PASS</span></td></tr>
+        </tbody>
+      </table>
+    </div>
+  </div>
+
+  <div class="footer-note">
+    <span>◐</span>
+    <span><b>整合提案說明：</b>這個畫面把原本分開的「儀表板」「趨勢預警」「結果解釋器摘要」「溫度預測」合併成一個中控台——中央機台示意圖即時反映 4 個 site 的健康狀態（正常 / 異常會直接在節點上顯示），左右兩側是 site 明細與告警，下方是趨勢圖、Bin 分布與最新事件。批次歷史瀏覽（Lot → Wafer 熱區圖）與逐筆解釋器維持獨立頁面，因為那是「查歷史紀錄」而非「盯即時狀態」的操作。</span>
+  </div>
+
+</div>
+</body>
+</html>

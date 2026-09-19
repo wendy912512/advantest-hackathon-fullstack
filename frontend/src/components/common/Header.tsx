@@ -1,0 +1,35 @@
+import Link from "next/link";
+import { IconActivity } from "@tabler/icons-react";
+
+export function Header() {
+  return (
+    <header className="border-b bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/60 sticky top-0 z-10">
+      <div className="mx-auto flex max-w-6xl items-center justify-between px-6 py-4">
+        <Link href="/" className="flex items-center gap-2 font-semibold">
+          <IconActivity className="size-5 text-primary" />
+          <span>RTDI 即時異常監控</span>
+        </Link>
+        <nav className="flex items-center gap-6 text-sm text-muted-foreground">
+          <Link href="/" className="hover:text-foreground">
+            儀表板
+          </Link>
+          <Link href="/trends" className="hover:text-foreground">
+            趨勢預警
+          </Link>
+          <Link href="/lots" className="hover:text-foreground">
+            批次品質
+          </Link>
+          <Link href="/explainer" className="hover:text-foreground">
+            結果解釋器
+          </Link>
+          <Link href="/temperature" className="hover:text-foreground">
+            溫度預測
+          </Link>
+          <Link href="/about" className="hover:text-foreground">
+            系統架構
+          </Link>
+        </nav>
+      </div>
+    </header>
+  );
+}
