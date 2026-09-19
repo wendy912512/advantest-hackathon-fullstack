@@ -77,7 +77,7 @@ export function LotBrowser({ lot }: { lot: string }) {
   return (
     <div>
       <div style={{ border: `1px solid ${C.border}`, borderRadius: 12, padding: 16, background: C.card, marginBottom: 12, boxShadow: C.shadow }}>
-        <div style={{ display: "flex", flexWrap: "wrap", gap: 20, marginBottom: 16, paddingBottom: 16, borderBottom: `1px solid ${C.borderLight}` }}>
+        <div style={{ display: "flex", flexWrap: "wrap", gap: 20 }}>
           {[
             { label: "LOT ID", val: summary.lot, color: C.text },
             { label: "PASS RATE", val: `${(summary.passRate * 100).toFixed(1)}%`, color: C.text },

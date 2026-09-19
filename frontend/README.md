@@ -1,6 +1,6 @@
 # Advantest Hackathon — RTDI 即時異常監控前端
 
-半導體測試資料即時串流與異常監控 Dashboard 前端。基於 Next.js（App Router）+ TypeScript + Tailwind CSS + shadcn/ui 建置，透過 Axios 呼叫後端 API（目前尚未串接，使用 Mock 資料開發）。
+半導體測試資料即時串流與異常監控 Dashboard 前端。基於 Next.js（App Router）+ TypeScript + Tailwind CSS + shadcn/ui 建置，透過 Axios 呼叫 FastAPI 後端 API。後端未回傳資料或服務不可用時，前端才使用本機示範資料作為 fallback。
 
 ## 系統架構
 
@@ -10,7 +10,7 @@
 SmartTest 執行測試
   → ACS Nexus 收集事件
   → ONEAPI 透過 consumeData() 逐一送出事件（LOTSTART...WAFERSTART...TESTEND...WAFEREND...LOTEND）
-  → 後端組裝、判讀（尚未串接）
+  → FastAPI 後端組裝、判讀（本機 CSV / internal adapter 已可用）
   → 前端（本網站）呼叫 API 顯示結果
 ```
 
@@ -61,9 +61,14 @@ src/
 
 ## 資料層說明
 
-目前後端 ONEAPI 服務尚未就緒，[src/lib/api/mock.ts](src/lib/api/mock.ts) 會產生模擬的測試事件資料（Site 1–4，其中 Site 2 刻意模擬 imbalance 異常、Site 3 模擬趨勢漂移、Site 4 模擬位移，wafer map 模擬 edge die effect）。
+### 目前資料來源與串接狀態
 
-`src/lib/api/{dashboard,sites,trends,lots,wafer,explainer}.ts` 是各頁面實際呼叫的介面；後端串接完成後，只需把這些檔案內部改成呼叫 `apiClient`（見 [src/lib/api/client.ts](src/lib/api/client.ts)），其餘元件與頁面不需更動。回傳格式請對齊 [src/lib/api/types.ts](src/lib/api/types.ts) 裡的 TypeScript interface。
+- 前端的 `src/lib/api/` 已透過 `apiClient` 呼叫 FastAPI 的 dashboard、site、lot、wafer、trend、temperature 與 fail API。
+- FastAPI 可從訓練用 RawResult CSV 匯入資料，也提供 `/api/internal/*` adapter endpoint，讓前端與本機測試流程使用相同的 `RuntimeState`。
+- `src/lib/api/mock.ts` 不是目前唯一資料來源；只有後端連線失敗或資料不存在時，才作為 fallback。`failFixture.json` 與 `thermalFixture.json` 是從訓練 CSV 產生的示範資料，不代表即時 ONEAPI 資料。
+- 真實 SmartTest／ACS Edge Server 的 OneAPI `SampleMonitor` callback 尚未完成部署與端到端驗證。目前 `backend/app/oneapi_bridge.py` 已提供 callback 到共享狀態的轉接函式，但仍需在官方 `sample.py`、ACS 環境中接入，並以實際 `py-app.log` 驗證事件欄位與順序。
+
+`src/lib/api/{dashboard,sites,trends,lots,wafer,explainer}.ts` 是各頁面呼叫後端的介面，實際 HTTP client 位於 [src/lib/api/client.ts](src/lib/api/client.ts)。回傳格式請對齊 [src/lib/api/types.ts](src/lib/api/types.ts) 裡的 TypeScript interface。
 
 ## 常用套件
 

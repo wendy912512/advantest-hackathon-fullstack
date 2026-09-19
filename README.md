@@ -79,8 +79,9 @@ curl -X POST "http://127.0.0.1:8080/api/internal/import-csv?path=C:\advantest-ha
 ## 目前整合狀態
 
 - 前端已透過 `frontend/src/lib/api/` 呼叫 FastAPI 的 dashboard、site、lot、wafer、trend、temperature 與失敗說明 API。
-- 後端目前以記憶體保存即時事件；服務重啟後資料會清空，因此競賽展示階段不需要自行建立資料庫。
-- 實際部署時，將由 `backend/app/oneapi_bridge.py` 從官方 `sample.py` 的回呼函式寫入共享狀態。
+- 後端目前以記憶體保存事件；本機預設會載入訓練用 RawResult CSV，也可透過 `/api/internal/*` adapter endpoint 注入事件。服務重啟後資料會清空，因此競賽展示階段不需要自行建立資料庫。
+- `backend/app/oneapi_bridge.py` 已提供 OneAPI callback 寫入共享狀態的轉接函式，但尚未在 ACS Edge Server／SmartTest 的官方 `sample.py` 中完成部署與端到端驗證。
+- 因此目前是「FastAPI 與前端已串接；真實 OneAPI 即時來源尚未完成」的狀態，不能把本地 CSV 或 frontend fallback 視為即時 OneAPI 資料。
 
 ## 待完成項目
 
