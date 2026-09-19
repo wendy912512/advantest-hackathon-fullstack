@@ -6,7 +6,10 @@ import type {
   FailureExplanation,
   LotListItem,
   LotSummary,
+  MachineNotification,
   SiteSummary,
+  TemperaturePrediction,
+  TemperatureSnapshot,
   TrendAlert,
   TrendPoint,
   TrendSeries,
@@ -672,4 +675,56 @@ export function explainFailures(limit = 8): FailureExplanation[] {
       reasons,
     };
   });
+}
+
+// ---------------------------------------------------------------------------
+// 場景二：IC 溫度預測 + 通知機台軟體（官方題目原文的第二個場景）
+//
+// 目前完全是 demo 架構：用「漏電流（IDDQ）數值越高、推估接面溫度越高」這個
+// 半導體物理上合理但被我簡化成線性關係的假設，把 site 的量測值換算成一個
+// 「預測溫度」。這不是真正的溫度感測或 ML 模型，只是先把 UI/資料流程搭出來，
+// 等拿到真實 CSV 資料集後，要整個換成真正的預測邏輯。見 Notion 對齊表。
+// ---------------------------------------------------------------------------
+
+const AMBIENT_TEMP_C = 25; // demo 用室溫基準
+const TEMP_SENSITIVITY_C_PER_MA = 7.5; // demo 用：每超出 baseline 電流 1 mA，推估溫度上升幾度
+const NOTIFY_TEMP_THRESHOLD_C = 85; // demo 用通知門檻，真實門檻需與工程師/機台規格確認
+
+export function generateTemperatureSnapshot(): TemperatureSnapshot {
+  const results = generateMockResults();
+  const siteSummaries = summarizeBySite(results);
+
+  const predictions: TemperaturePrediction[] = siteSummaries.map((s) => {
+    const predictedTempC = AMBIENT_TEMP_C + (s.mean - 19.5) * TEMP_SENSITIVITY_C_PER_MA;
+    const shouldNotify = predictedTempC >= NOTIFY_TEMP_THRESHOLD_C;
+
+    return {
+      site: s.site,
+      predictedTempC: Number(predictedTempC.toFixed(1)),
+      thresholdC: NOTIFY_TEMP_THRESHOLD_C,
+      shouldNotify,
+      confidence: shouldNotify ? 0.72 : 0.88,
+      predictedAt: new Date().toISOString(),
+      basis: [
+        `依 Site ${s.site} 的 ${TEST_SUITE_NAME} 平均量測值 ${s.mean} ${TEST_UNIT} 推估（demo 用線性關係：量測值每偏離 baseline 1 ${TEST_UNIT}，溫度預估 +${TEMP_SENSITIVITY_C_PER_MA}°C，非真正的溫度感測或訓練過的模型）`,
+      ],
+    };
+  });
+
+  const notifications: MachineNotification[] = predictions
+    .filter((p) => p.shouldNotify)
+    .map((p) => ({
+      id: `notify-site-${p.site}`,
+      site: p.site,
+      predictedTempC: p.predictedTempC,
+      action: `建議降低 Site ${p.site} 測試速度或暫停該 site，待溫度回落至 ${NOTIFY_TEMP_THRESHOLD_C}°C 以下`,
+      sentAt: new Date().toISOString(),
+      status: "SENT",
+    }));
+
+  return {
+    generatedAt: new Date().toISOString(),
+    predictions,
+    notifications,
+  };
 }

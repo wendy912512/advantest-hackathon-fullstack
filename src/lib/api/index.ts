@@ -6,3 +6,4 @@ export * from "./trends";
 export * from "./lots";
 export * from "./wafer";
 export * from "./explainer";
+export * from "./temperature";

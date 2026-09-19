@@ -157,6 +157,37 @@ export interface FailureExplanation {
   reasons: string[];
 }
 
+// 場景二：預測 IC 溫度，並將結果通知機台軟體（官方題目原文）。
+// 這跟場景一（異常偵測儀表板）性質不同：是「預測模型 + 控制回傳」，不是單純顯示異常。
+// 目前為 mock 架構雛形，真實模型/CSV 資料到位後，fetchTemperatureSnapshot() 內部邏輯需整個替換。
+export interface TemperaturePrediction {
+  site: number;
+  predictedTempC: number;
+  thresholdC: number;
+  shouldNotify: boolean;
+  confidence: number; // 0-1，demo 用假信心值，真正模型需重新定義
+  predictedAt: string; // ISO
+  basis: string[]; // 規則式推論依據說明（呼應 FailureExplanation 的設計）
+}
+
+export type NotificationStatus = "SENT" | "ACKNOWLEDGED" | "PENDING";
+
+// 通知機台軟體的紀錄（模擬 ONEAPI Interface.sendCommand() 這類雙向互動）
+export interface MachineNotification {
+  id: string;
+  site: number;
+  predictedTempC: number;
+  action: string;
+  sentAt: string;
+  status: NotificationStatus;
+}
+
+export interface TemperatureSnapshot {
+  generatedAt: string;
+  predictions: TemperaturePrediction[];
+  notifications: MachineNotification[];
+}
+
 export interface DashboardSnapshot {
   generatedAt: string;
   currentLot: string;

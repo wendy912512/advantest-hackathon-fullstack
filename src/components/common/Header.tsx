@@ -22,6 +22,9 @@ export function Header() {
           <Link href="/explainer" className="hover:text-foreground">
             結果解釋器
           </Link>
+          <Link href="/temperature" className="hover:text-foreground">
+            溫度預測
+          </Link>
           <Link href="/about" className="hover:text-foreground">
             系統架構
           </Link>
