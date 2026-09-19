@@ -20,6 +20,7 @@ import failFixtures from "./failFixtures.json";
 import waferMapFixtures from "./waferMapFixtures.json";
 import csvSummaryFixtures from "./csvSummaryFixtures.json";
 import csvDistributionFixtures from "./csvDistributionFixtures.json";
+import csvTrendFixtures from "./csvTrendFixtures.json";
 
 type FixtureMap = Record<string, WaferMapData>;
 type FailFixture = { events: WaferFails["events"]; rows: WaferFails["rows"] };
@@ -62,7 +63,10 @@ export function getCsvLotSummary(lot: string): LotSummary | undefined {
   return summaryFixtures.lotSummaries[lot] ?? undefined;
 }
 
-export function getCsvTrends(): TrendSeries[] {
+export function getCsvTrends(lot?: string, wafer?: string): TrendSeries[] {
+  if (lot === LIVE_LOT && wafer) {
+    return (csvTrendFixtures as Record<string, TrendSeries[]>)[wafer] ?? [];
+  }
   return summaryFixtures.trends;
 }
 

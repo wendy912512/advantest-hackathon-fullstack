@@ -126,8 +126,8 @@ def wafer_distribution(lot: str, wafer: str, event: str | None = None) -> dict:
 
 
 @app.get("/api/trends")
-def trends() -> list[dict]:
-    return runtime_state.trends()
+def trends(lot: str | None = None, wafer: str | None = None) -> list[dict]:
+    return runtime_state.trends(lot=lot, wafer=wafer)
 
 
 @app.get("/api/failures/explain")

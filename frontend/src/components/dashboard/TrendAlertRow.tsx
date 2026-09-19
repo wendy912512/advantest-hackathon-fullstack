@@ -29,24 +29,12 @@ function AnomalyDot(props: { cx?: number; cy?: number; payload?: { anomaly?: boo
 }
 
 export function TrendAlertRow({ series }: { series: TrendSeries }) {
-  const grouped = new Map<string, { sum: number; count: number; timestamp: string }>();
-  series.points.forEach((point, index) => {
-    const wafer = point.wafer ?? `SEQ-${Math.floor(index / 20) + 1}`;
-    const current = grouped.get(wafer) ?? { sum: 0, count: 0, timestamp: point.timestamp };
-    current.sum += point.value;
-    current.count += 1;
-    current.timestamp = point.timestamp;
-    grouped.set(wafer, current);
-  });
-  const chartData = Array.from(grouped.entries()).map(([wafer, group]) => {
-    const value = group.sum / group.count;
-    return {
-      wafer,
-      value,
-      timestamp: group.timestamp,
-      anomaly: value > series.ucl || value < series.lcl,
-    };
-  });
+  const chartData = series.points.map((point, index) => ({
+    x: index + 1,
+    value: point.value,
+    timestamp: point.timestamp,
+    anomaly: point.value > series.ucl || point.value < series.lcl,
+  }));
   const uniqueAlerts = series.alerts.filter((alert, index, alerts) =>
     alerts.findIndex((candidate) => candidate.message === alert.message) === index,
   );
@@ -94,19 +82,19 @@ export function TrendAlertRow({ series }: { series: TrendSeries }) {
             LCL: <span style={{ color: C.lcl, fontWeight: 600 }}>{series.lcl.toFixed(3)}</span>
           </span>
           <span style={{ color: C.muted, fontFamily: "inherit" }}>
-            每片 wafer 平均 {chartData.length} 點
+            單一 wafer，{chartData.length} 個量測點
           </span>
         </div>
         <ResponsiveContainer width="100%" height={160}>
           <LineChart data={chartData} margin={{ top: 8, right: 20, bottom: 0, left: 32 }}>
             <CartesianGrid strokeDasharray="3 3" stroke={C.borderLight} />
-            <XAxis dataKey="wafer" interval={2} tick={{ fontSize: 10, fill: C.muted }} tickLine={false} axisLine={false} />
+            <XAxis dataKey="x" interval={2} tick={{ fontSize: 10, fill: C.muted }} tickLine={false} axisLine={false} />
             <YAxis tick={{ fontSize: 10, fill: C.muted }} tickLine={false} axisLine={false} width={30} />
             <Tooltip
               contentStyle={{ background: C.card, border: `1px solid ${C.border}`, borderRadius: 8, fontSize: 12, boxShadow: C.shadowMd }}
               itemStyle={{ color: C.text }}
               labelStyle={{ color: C.muted }}
-              labelFormatter={(label) => `Wafer ${label}`}
+              labelFormatter={(label) => `測量序號 ${label}`}
             />
             <ReferenceLine y={series.ucl} stroke={C.ucl} strokeDasharray="4 2" strokeWidth={1} label={{ value: "UCL", position: "right", fontSize: 10, fill: C.ucl }} />
             <ReferenceLine y={series.lcl} stroke={C.lcl} strokeDasharray="4 2" strokeWidth={1} label={{ value: "LCL", position: "right", fontSize: 10, fill: C.lcl }} />

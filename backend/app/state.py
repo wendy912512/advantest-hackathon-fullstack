@@ -286,9 +286,14 @@ class RuntimeState:
             "wafers": wafer_items,
         }
 
-    def trends(self) -> list[dict[str, Any]]:
+    def trends(self, lot: str | None = None, wafer: str | None = None) -> list[dict[str, Any]]:
         with self.lock:
-            entries = [entry.model_copy(deep=True) for entry in self.devices]
+            entries = [
+                entry.model_copy(deep=True)
+                for entry in self.devices
+                if (lot is None or entry.device.lot == lot)
+                and (wafer is None or entry.device.wafer == wafer)
+            ]
         by_site: dict[int, list[DeviceTestResult]] = defaultdict(list)
         for entry in entries:
             by_site[entry.device.site].append(entry)

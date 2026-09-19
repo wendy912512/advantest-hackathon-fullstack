@@ -6,7 +6,7 @@ import { fetchTrendSeries } from "@/lib/api";
 
 const POLL_INTERVAL_MS = 10_000;
 
-export function useTrendSeries() {
+export function useTrendSeries(lot?: string, wafer?: string) {
   const [series, setSeries] = useState<TrendSeries[] | null>(null);
   const [isLoading, setIsLoading] = useState(true);
 
@@ -14,7 +14,14 @@ export function useTrendSeries() {
     let cancelled = false;
 
     async function load() {
-      const data = await fetchTrendSeries();
+      if (!lot || !wafer) {
+        if (!cancelled) {
+          setSeries([]);
+          setIsLoading(false);
+        }
+        return;
+      }
+      const data = await fetchTrendSeries(lot, wafer);
       if (!cancelled) {
         setSeries(data);
         setIsLoading(false);
@@ -28,7 +35,7 @@ export function useTrendSeries() {
       cancelled = true;
       clearInterval(interval);
     };
-  }, []);
+  }, [lot, wafer]);
 
   return { series, isLoading };
 }

@@ -125,3 +125,11 @@ if len(csv_paths) > 1:
     distribution_out = out.parent / "csvDistributionFixtures.json"
     distribution_out.write_text(json.dumps(distribution_fixtures, ensure_ascii=False, separators=(",", ":")), encoding="utf-8")
     print("wrote", distribution_out, len(distribution_fixtures), "wafer fixtures")
+
+    trend_fixtures = {
+        wafer: runtime_state.trends(lot="A12345", wafer=wafer)
+        for wafer in fail_fixtures
+    }
+    trend_out = out.parent / "csvTrendFixtures.json"
+    trend_out.write_text(json.dumps(trend_fixtures, ensure_ascii=False, separators=(",", ":")), encoding="utf-8")
+    print("wrote", trend_out, len(trend_fixtures), "wafer fixtures")
