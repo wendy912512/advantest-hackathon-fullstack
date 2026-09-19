@@ -8,7 +8,7 @@ from threading import RLock
 from typing import Any, Callable
 
 from .bin_labels import bin_label, hard_bin_label
-from .events import derive_fail_events
+from .events import derive_fail_events, event_id
 from .alert_manager import AlertManager
 from .anomaly_engine import AnomalyEngine
 from .models import Measurement as AnomalyMeasurement
@@ -380,6 +380,69 @@ class RuntimeState:
                 item = counts.setdefault(row["event"], {"event": row["event"], "meaning": row["meaning"], "count": 0})
                 item["count"] += 1
         return {"lot": lot, "wafer": wafer, "events": sorted(counts.values(), key=lambda e: e["event"]), "rows": rows}
+
+    def wafer_distribution(self, lot: str, wafer: str, selected_event: str | None = None) -> dict[str, Any] | None:
+        """Return all numeric measurements for one event on one wafer.
+
+        Unlike ``wafer_fails()``, this intentionally includes PASS and FAIL
+        values so the frontend can draw an unbiased empirical CDF.
+        """
+        with self.lock:
+            entries = [
+                entry.model_copy(deep=True)
+                for entry in self.devices
+                if entry.device.lot == lot and entry.device.wafer == wafer
+            ]
+        if not entries:
+            return None
+
+        grouped: dict[str, dict[str, Any]] = {}
+        for entry in entries:
+            for result in entry.results:
+                if result.value is None:
+                    continue
+                key = event_id(result.testNumber, result.testSuiteName, result.pinName)
+                item = grouped.setdefault(key, {
+                    "event": key,
+                    "testSuiteName": result.testSuiteName,
+                    "pinName": result.pinName,
+                    "unit": result.unit,
+                    "lowLimit": result.lowLimit,
+                    "highLimit": result.highLimit,
+                    "samples": [],
+                })
+                item["samples"].append({
+                    "pid": entry.device.pid,
+                    "site": entry.device.site,
+                    "value": result.value,
+                    "pass": result.pass_,
+                })
+
+        events = [
+            {key: value for key, value in item.items() if key != "samples"} | {"count": len(item["samples"])}
+            for item in sorted(grouped.values(), key=lambda item: item["event"])
+        ]
+        if not events:
+            return {"lot": lot, "wafer": wafer, "events": [], "selectedEvent": None, "samples": []}
+
+        key = selected_event if selected_event in grouped else events[0]["event"]
+        item = grouped[key]
+        values = sorted(sample["value"] for sample in item["samples"])
+        n = len(values)
+        samples = [
+            {**sample, "probability": (index + 0.5) / n}
+            for index, sample in enumerate(sorted(item["samples"], key=lambda sample: sample["value"]))
+        ]
+        return {
+            "lot": lot,
+            "wafer": wafer,
+            "events": events,
+            "selectedEvent": key,
+            "unit": item["unit"],
+            "lowLimit": item["lowLimit"],
+            "highLimit": item["highLimit"],
+            "samples": samples,
+        }
 
     def set_thermal_progress(self, completed: int) -> None:
         with self.lock:

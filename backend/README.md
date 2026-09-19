@@ -14,7 +14,7 @@ python3 -m venv .venv && .venv/bin/pip install -r requirements.txt
 
 ## 本機 CSV Mock
 
-本機啟動時會優先載入 `training/Data/A12345_W01_RawResult.csv` 到 `A12345_W25_RawResult.csv`，並統一提供 Dashboard、Site、Wafer Map 與 Fail Table，避免各畫面使用不同 mock 資料。每份 CSV 會對應成 `W01` 到 `W25`。
+本機啟動時會優先載入 `training/Data/A12345_W01_RawResult.csv` 到 `A12345_W25_RawResult.csv`，並統一提供 Dashboard、Site、Wafer Map 與 Fail Table，避免各畫面使用不同 mock 資料。使用者選擇 `W01`～`W25` 時，API 會依 wafer 回傳對應 CSV 匯入的資料。
 
 也可以只指定一份檔案：
 

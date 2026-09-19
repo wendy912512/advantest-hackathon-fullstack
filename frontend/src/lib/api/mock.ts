@@ -22,6 +22,7 @@ import type {
 import { binLabel } from "@/lib/binLabels";
 import thermalFixture from "./thermalFixture.json";
 import failFixture from "./failFixture.json";
+import failFixtures from "./failFixtures.json";
 
 // 模擬 ONEAPI consumeData() 收到的即時測試資料。
 // 後端串接後，此檔案可整份移除，改由 lib/api/dashboard.ts、lib/api/sites.ts 呼叫真實 API。
@@ -842,11 +843,13 @@ export function generateWaferThermal(lot: string, wafer: string): WaferThermal |
   };
 }
 
-// Sites 頁 Table 的 mock 備援：真實 W01 的 Fail 異常事件（failFixture.json，由
-// backend/scripts/build_thermal_fixture.py 用後端 wafer_fails() 產生）。跟
-// generateWaferThermal() 一樣只有 W01 一片真實資料，其他 wafer 只換標籤。
+// Sites 頁 Table 的 mock 備援：每片 wafer 使用自己的 RawResult CSV 產生的
+// failFixtures.json。failFixture.json 保留作為單片 W01 舊版 fixture 相容備援。
 export function generateWaferFails(lot: string, wafer: string): WaferFails | undefined {
   const isLive = lot === LIVE_LOT && wafer === LIVE_WAFER;
   if (!isLive && !findWaferDefinition(lot, wafer)) return undefined;
-  return { lot, wafer, events: failFixture.events, rows: failFixture.rows as WaferFails["rows"] };
+  const fixture = (failFixtures as Record<string, typeof failFixture>)[wafer] ??
+    (wafer === "W01" ? failFixture : undefined);
+  if (!fixture) return undefined;
+  return { lot, wafer, events: fixture.events, rows: fixture.rows as WaferFails["rows"] };
 }

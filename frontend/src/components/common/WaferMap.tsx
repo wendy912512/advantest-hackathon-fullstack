@@ -4,6 +4,7 @@ import { useState } from "react";
 import type { WaferMapData } from "@/lib/api";
 import { C } from "@/lib/theme";
 import { BIN_COLORS, binLabel } from "@/lib/binLabels";
+import { IconAlertTriangle, IconCircleCheck } from "@tabler/icons-react";
 
 // 抽成共用元件：Sites 頁（單一 wafer 檢視）跟 Wafer Browser 頁（點 wafer grid
 // 檢視）都要畫同一種圓形 wafer map。
@@ -101,7 +102,7 @@ export function WaferMap({ data, size = 280 }: { data: WaferMapData; size?: numb
         >
           <div style={{ display: "flex", alignItems: "center", gap: 7, marginBottom: 6, color: "#1F2937", fontWeight: 700 }}>
             <span style={{ width: 14, height: 14, borderRadius: "50%", display: "inline-flex", alignItems: "center", justifyContent: "center", background: hovered.pf === "PASS" ? "#DDF5E3" : "#FDE2E2", color: hovered.pf === "PASS" ? "#16803A" : "#C62828", fontSize: 10 }}>
-              {hovered.pf === "PASS" ? "✓" : "!"}
+              {hovered.pf === "PASS" ? <IconCircleCheck size={11} stroke={2} /> : <IconAlertTriangle size={11} stroke={2} />}
             </span>
             <span>Device {hovered.pid}</span>
             <span style={{ color: "#9CA3AF", fontWeight: 400 }}>· Site {hovered.site}</span>

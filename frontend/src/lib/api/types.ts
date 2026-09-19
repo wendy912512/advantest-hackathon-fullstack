@@ -247,6 +247,35 @@ export interface WaferFails {
   rows: FailRow[];
 }
 
+export interface DistributionEvent {
+  event: string;
+  testSuiteName: string;
+  pinName: string | null;
+  unit: string | null;
+  lowLimit: number | null;
+  highLimit: number | null;
+  count: number;
+}
+
+export interface DistributionSample {
+  pid: string;
+  site: number;
+  value: number;
+  pass: boolean;
+  probability: number;
+}
+
+export interface WaferDistribution {
+  lot: string;
+  wafer: string;
+  events: DistributionEvent[];
+  selectedEvent: string | null;
+  unit?: string | null;
+  lowLimit?: number | null;
+  highLimit?: number | null;
+  samples: DistributionSample[];
+}
+
 export interface DashboardSnapshot {
   generatedAt: string;
   currentLot: string;

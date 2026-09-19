@@ -127,6 +127,11 @@ export default function SitesPage() {
 
   return (
     <div>
+      <div style={{ marginBottom: 20 }}>
+        <div style={{ color: C.blue, fontFamily: MONO, fontSize: 11, fontWeight: 700, letterSpacing: "0.1em", marginBottom: 7 }}>LIVE QUALITY MONITOR</div>
+        <h1 style={{ color: C.text, fontSize: 25, fontWeight: 650, letterSpacing: "-0.02em", margin: 0 }}>Site 即時品質監控</h1>
+        <p style={{ color: C.muted, fontSize: 13, margin: "7px 0 0" }}>依 Lot、Wafer 與 Site 查看通過率、Fail 事件、Wafer Map 與趨勢告警。</p>
+      </div>
       <LotWaferFilter
         lots={lots}
         selectedLot={selectedLot}

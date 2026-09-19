@@ -117,6 +117,14 @@ def wafer_fails(lot: str, wafer: str) -> dict:
     return data
 
 
+@app.get("/api/lots/{lot}/wafers/{wafer}/distribution")
+def wafer_distribution(lot: str, wafer: str, event: str | None = None) -> dict:
+    data = runtime_state.wafer_distribution(lot, wafer, event)
+    if data is None:
+        raise HTTPException(status_code=404, detail="Wafer not found")
+    return data
+
+
 @app.get("/api/trends")
 def trends() -> list[dict]:
     return runtime_state.trends()

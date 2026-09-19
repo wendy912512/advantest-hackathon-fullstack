@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import type { AlertSource, UnifiedAlert } from "@/lib/alerts";
 import { C, MONO } from "@/lib/theme";
 import { formatPid, VERDICT_LABELS } from "@/lib/thermal";
+import { IconAlertTriangle, IconCircleX } from "@tabler/icons-react";
 
 type NotifFilter = "all" | "critical" | "warning";
 
@@ -21,7 +22,6 @@ function AlertCard({ alert, isLatest, flash }: { alert: UnifiedAlert; isLatest: 
   const t = alert.thermal;
   const verified = t?.verdict != null;
   const sevLabel = t ? (verified ? "預測已驗證" : "預測異常") : isCritical ? "Critical" : "Warning";
-  const sevIcon = isCritical ? "⊗" : "⚠";
 
   return (
     <div
@@ -37,7 +37,7 @@ function AlertCard({ alert, isLatest, flash }: { alert: UnifiedAlert; isLatest: 
     >
       <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 10 }}>
         <div style={{ width: 36, height: 36, borderRadius: "50%", background: sevBg, border: `2px solid ${sevBorder}`, display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
-          <span style={{ fontSize: 15, color: sevColor, fontWeight: 700 }}>{sevIcon}</span>
+          {isCritical ? <IconCircleX size={17} stroke={2} color={sevColor} /> : <IconAlertTriangle size={17} stroke={2} color={sevColor} />}
         </div>
         <div style={{ flex: 1, display: "flex", alignItems: "center", justifyContent: "space-between" }}>
           <span style={{ fontSize: 14, fontWeight: 700, color: sevColor }}>{sevLabel}</span>

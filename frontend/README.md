@@ -65,7 +65,7 @@ src/
 
 - 前端的 `src/lib/api/` 已透過 `apiClient` 呼叫 FastAPI 的 dashboard、site、lot、wafer、trend、temperature 與 fail API。
 - FastAPI 可從訓練用 RawResult CSV 匯入資料，也提供 `/api/internal/*` adapter endpoint，讓前端與本機測試流程使用相同的 `RuntimeState`。
-- `src/lib/api/mock.ts` 不是目前唯一資料來源；只有後端連線失敗或資料不存在時，才作為 fallback。`failFixture.json` 與 `thermalFixture.json` 是從訓練 CSV 產生的示範資料，不代表即時 ONEAPI 資料。
+- `src/lib/api/mock.ts` 不是目前唯一資料來源；只有後端連線失敗或資料不存在時，才作為 fallback。Fail fallback 使用依 W01～W25 分別產生的 `failFixtures.json`；`thermalFixture.json` 目前仍是 W01 的示範資料，不代表即時 ONEAPI 資料。
 - 真實 SmartTest／ACS Edge Server 的 OneAPI `SampleMonitor` callback 尚未完成部署與端到端驗證。目前 `backend/app/oneapi_bridge.py` 已提供 callback 到共享狀態的轉接函式，但仍需在官方 `sample.py`、ACS 環境中接入，並以實際 `py-app.log` 驗證事件欄位與順序。
 
 `src/lib/api/{dashboard,sites,trends,lots,wafer,explainer}.ts` 是各頁面呼叫後端的介面，實際 HTTP client 位於 [src/lib/api/client.ts](src/lib/api/client.ts)。回傳格式請對齊 [src/lib/api/types.ts](src/lib/api/types.ts) 裡的 TypeScript interface。

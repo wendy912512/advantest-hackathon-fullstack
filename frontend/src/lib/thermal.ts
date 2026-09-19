@@ -21,9 +21,9 @@ export const STATUS_LABELS: Record<ThermalStatus, string> = {
 };
 
 // 顏色與右側即時通知卡片的圖示一致：Critical 紅、Warning 橘（#E65100）、Normal 綠。
-export const STATUS_COLORS: Record<ThermalStatus, { fg: string; bg: string; border: string; glyph: string }> = {
-  normal: { fg: C.green, bg: C.greenBg, border: C.greenBorder, glyph: "✓" },
-  warning: { fg: "#E65100", bg: "#FFF3E0", border: "#FFCCAA", glyph: "!" },
-  critical: { fg: C.red, bg: C.redBg, border: C.redBorder, glyph: "✕" },
-  pending: { fg: C.muted, bg: C.surfaceVariant, border: C.border, glyph: "·" },
+export const STATUS_COLORS: Record<ThermalStatus, { fg: string; bg: string; border: string }> = {
+  normal: { fg: C.green, bg: C.greenBg, border: C.greenBorder },
+  warning: { fg: "#E65100", bg: "#FFF3E0", border: "#FFCCAA" },
+  critical: { fg: C.red, bg: C.redBg, border: C.redBorder },
+  pending: { fg: C.muted, bg: C.surfaceVariant, border: C.border },
 };

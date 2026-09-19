@@ -5,6 +5,7 @@ import type { DeviceSensorPrediction, DeviceThermal, ThermalStatus, WaferThermal
 import { C, MONO } from "@/lib/theme";
 import { SectionHeader } from "@/components/common/SectionHeader";
 import { formatPid, STATUS_COLORS, STATUS_LABELS, VERDICT_LABELS } from "@/lib/thermal";
+import { IconAlertTriangle, IconCircleCheck, IconCircleX, IconClock } from "@tabler/icons-react";
 
 
 const STAGE_LABELS = { verified: "已實測", next: "預測中", future: "未到" } as const;
@@ -254,18 +255,7 @@ function HoverCard({
   );
 }
 
-// 只有圖示本身（沒有底色與外框），顏色對齊右側即時通知。路徑取自 Material Symbols：check / warning / cancel(⊗) / schedule。
-const ICON_PATHS: Record<ThermalStatus, string> = {
-  normal: "M9 16.17 4.83 12l-1.42 1.41L9 19 21 7l-1.41-1.41z",
-  warning: "M1 21h22L12 2 1 21zm12-3h-2v-2h2v2zm0-4h-2v-4h2v4z",
-  critical: "M12 2C6.47 2 2 6.47 2 12s4.47 10 10 10 10-4.47 10-10S17.53 2 12 2zm5 13.59L15.59 17 12 13.41 8.41 17 7 15.59 10.59 12 7 8.41 8.41 7 12 10.59 15.59 7 17 8.41 13.41 12 17 15.59z",
-  pending: "M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm0 18c-4.42 0-8-3.58-8-8s3.58-8 8-8 8 3.58 8 8-3.58 8-8 8zm.5-13H11v6l5.25 3.15.75-1.23-4.5-2.67z",
-};
-
 function StatusIcon({ status }: { status: ThermalStatus }) {
-  return (
-    <svg viewBox="0 0 24 24" width="100%" height="100%" fill="currentColor" aria-hidden="true">
-      <path d={ICON_PATHS[status]} />
-    </svg>
-  );
+  const Icon = status === "normal" ? IconCircleCheck : status === "warning" ? IconAlertTriangle : status === "critical" ? IconCircleX : IconClock;
+  return <Icon size="100%" stroke={2} aria-hidden="true" />;
 }
