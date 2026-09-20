@@ -95,6 +95,8 @@ export interface WaferListItem {
   wafer: string;
   totalDevices: number;
   passRate: number;
+  status?: "NORMAL" | "LOW_YIELD" | "SITE_UNBALANCE" | "MEAN_TREND_UP" | "MEAN_TREND_DOWN" | "STDEV_TREND_UP" | "STDEV_TREND_DOWN";
+  statusReason?: string;
   hasIssue: boolean;
 }
 
@@ -216,6 +218,13 @@ export interface WaferThermal {
   nextSensor: number | null;
   sensors: ThermalSensorMeta[];
   devices: DeviceThermal[];
+  model?: {
+    name: string;
+    objective: string;
+    featureSchema: string;
+    featureCounts: number[];
+    modelDirectory: string;
+  } | null;
 }
 
 export interface ThermalValidationMetrics {
@@ -237,6 +246,7 @@ export interface ThermalValidationMetrics {
 
 export interface ThermalValidationReport {
   generatedAt: string;
+  status?: "current" | "stale";
   dataset: {
     trainingWafers: string[];
     trainingDevices: number;
@@ -254,6 +264,18 @@ export interface ThermalValidationReport {
     status: string;
     note: string;
   };
+  productionModel?: {
+    name: string;
+    objective: string;
+    featureSchema: string;
+    featureCounts: number[];
+    modelDirectory: string;
+  } | null;
+}
+
+export interface ThermalValidationPending {
+  status: "generating";
+  message: string;
 }
 
 // Sites 頁 Table：只列 Fail 異常資料。每列是「一顆 fail device 的一個超標事件」

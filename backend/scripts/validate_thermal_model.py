@@ -66,7 +66,8 @@ def load_csvs(data_dir: Path, *, lot: str, state: RuntimeState) -> list[DeviceTe
                 lot_override=lot,
                 wafer_override=wafer_from_path(path),
                 reset=index == 0,
-                measurement_limit=2541,
+                measurement_limit=24,
+                include_model_features=True,
             )
     finally:
         csv_import.runtime_state = original_state

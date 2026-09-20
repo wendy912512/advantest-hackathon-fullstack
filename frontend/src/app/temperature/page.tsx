@@ -3,7 +3,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { useAppData } from "@/components/providers/AppDataProvider";
 import { useFilterableLots } from "@/hooks/useFilterableLots";
-import type { LotSummary, ThermalValidationReport, WaferListItem, WaferThermal } from "@/lib/api";
+import type { LotSummary, ThermalValidationPending, ThermalValidationReport, WaferListItem, WaferThermal } from "@/lib/api";
 import { fetchLotSummary, fetchThermalValidationReport, fetchWaferThermal } from "@/lib/api";
 import { LotWaferFilter } from "@/components/common/LotWaferFilter";
 import { ThermalValidationReportView } from "@/components/temperature/ThermalValidationReport";
@@ -21,6 +21,7 @@ export default function TemperaturePage() {
   const [otherThermal, setOtherThermal] = useState<WaferThermal | undefined>(undefined);
   const [loadedKey, setLoadedKey] = useState("");
   const [validationReport, setValidationReport] = useState<ThermalValidationReport | undefined>(undefined);
+  const [validationPending, setValidationPending] = useState<ThermalValidationPending | undefined>(undefined);
   const [view, setView] = useState<"prediction" | "validation">("prediction");
 
   const isLive = dashboard != null && selectedLot === dashboard.currentLot && selectedWafer === dashboard.currentWafer;
@@ -52,13 +53,24 @@ export default function TemperaturePage() {
 
   useEffect(() => {
     let cancelled = false;
-    fetchThermalValidationReport().then((report) => {
-      if (!cancelled) setValidationReport(report);
+    const load = () => fetchThermalValidationReport().then((report) => {
+      if (cancelled) return;
+      if (report?.status === "generating") {
+        setValidationPending(report);
+        return;
+      }
+      setValidationPending(undefined);
+      setValidationReport(report);
     });
+    load();
+    const interval = setInterval(() => {
+      if (!validationReport) load();
+    }, 5000);
     return () => {
       cancelled = true;
+      clearInterval(interval);
     };
-  }, []);
+  }, [validationReport]);
 
   const waferOptions: WaferListItem[] = useMemo(() => {
     const list = [...(lotSummary?.wafers ?? [])];
@@ -121,9 +133,13 @@ export default function TemperaturePage() {
       {view === "validation" ? (
         validationReport ? (
           <ThermalValidationReportView report={validationReport} />
+        ) : validationPending ? (
+          <div style={{ border: `1px dashed ${C.border}`, borderRadius: 12, padding: "32px 20px", textAlign: "center", color: C.muted, fontSize: 13, background: C.card }}>
+            {validationPending.message}
+          </div>
         ) : (
           <div style={{ border: `1px dashed ${C.border}`, borderRadius: 12, padding: "32px 20px", textAlign: "center", color: C.muted, fontSize: 13, background: C.card }}>
-            尚未取得模型驗證報告。請先在後端執行 <code>python backend/scripts/validate_thermal_model.py</code> 產生報告。
+            模型驗證報告目前無法取得，系統會自動重試。
           </div>
         )
       ) : data ? (

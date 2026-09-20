@@ -258,7 +258,7 @@ def production_model_info() -> dict[str, Any] | None:
         feature_counts.append(len(artifact[1]))
     return {
         "name": "LightGBM",
-        "objective": "Huber / regression per sensor",
+        "objective": "sensor-specific LightGBM regression",
         "featureSchema": "Top-80 causal features",
         "featureCounts": feature_counts,
         "modelDirectory": "backend/training/models",
@@ -271,6 +271,7 @@ def fit_cross_wafer_predictor(
     target_sensor: int,
     *,
     target_entry: DeviceTestResult | None = None,
+    use_production_model: bool = False,
 ) -> np.ndarray:
     """Train a causal Top-80 LightGBM regressor and predict target rows.
 
@@ -278,12 +279,20 @@ def fit_cross_wafer_predictor(
     fitting both use training wafers only, so a held-out wafer cannot leak into
     the schema or model. Missing prefix values are median-imputed from training.
     """
+    target_rows = target_entries if target_entries else ([target_entry] if target_entry else [])
+    if use_production_model or target_entry is not None:
+        artifact = _production_artifact(target_sensor)
+        if artifact is not None:
+            model, schema = artifact
+            matrix = _production_feature_matrix(training_entries + target_rows, target_rows, schema)
+            predictor = getattr(model, "booster_", model)
+            return predictor.predict(matrix)
+
     descriptors = _feature_descriptors(training_entries, target_sensor)
     if not descriptors:
         return np.full(len(target_entries) if target_entries else 1, np.nan)
 
     train_x = _feature_matrix(training_entries, descriptors)
-    target_rows = target_entries if target_entries else ([target_entry] if target_entry else [])
     target_x = _feature_matrix(target_rows, descriptors)
     labels: list[float] = []
     label_rows: list[int] = []
@@ -390,7 +399,12 @@ def build_wafer_thermal(
         if stage_state != "future":
             # Only values recorded before sensor K in each device's column order.
             training_entries = [entry for entry in entries if entry.device.wafer != wafer]
-            predicted = fit_cross_wafer_predictor(training_entries, target_entries, idx)
+            predicted = fit_cross_wafer_predictor(
+                training_entries,
+                target_entries,
+                idx,
+                use_production_model=is_live,
+            )
 
         for i in range(n):
             p = None if np.isnan(predicted[i]) else float(predicted[i])
@@ -414,4 +428,5 @@ def build_wafer_thermal(
         "nextSensor": next_sensor,
         "sensors": sensors_meta,
         "devices": device_rows,
+        "model": production_model_info(),
     }

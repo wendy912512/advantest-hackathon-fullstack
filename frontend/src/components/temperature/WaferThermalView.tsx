@@ -108,6 +108,13 @@ export function WaferThermalView({ data }: { data: WaferThermal }) {
 
       <div style={{ marginBottom: 20 }}>
         <SectionHeader id="thermal-summary" label={`Wafer ${data.wafer} 預測摘要 — ${sensor.name}`} />
+        {data.model && (
+          <div style={{ display: "flex", gap: 8, flexWrap: "wrap", alignItems: "center", marginBottom: 10, fontSize: 12 }}>
+            <span style={{ padding: "5px 9px", borderRadius: 8, background: C.blueBg, color: C.blue, fontFamily: MONO, fontWeight: 700 }}>{data.model.name}</span>
+            <span style={{ color: C.sub }}>{data.model.featureSchema}</span>
+            <span style={{ color: C.muted }}>跨 wafer 訓練 · 目前 sensor 使用 {data.model.featureCounts[sensor.index - 1] ?? "—"} 個特徵</span>
+          </div>
+        )}
         <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(130px, 1fr))", gap: 8 }}>
           <SummaryStat label="預測中的 DEVICE" value={`${predicted} 個`} />
           <SummaryStat label="已收到正式值" value={`${predicted - awaiting} 個`} />

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import csv
+import json
 import re
 from collections import defaultdict
 from pathlib import Path
@@ -13,6 +14,27 @@ from .state import now_iso, runtime_state
 
 class CsvImportError(ValueError):
     """Raised when a local CSV cannot be converted into dashboard events."""
+
+
+_MODEL_SCHEMA_PATH = Path(__file__).resolve().parents[1] / "training" / "models" / "feature_schema.json"
+_MAX_FAIL_EVENTS_PER_DEVICE = 32
+
+
+def _model_feature_names() -> set[str]:
+    """Return raw CSV feature names required by the uploaded production models.
+
+    The runtime still keeps the small default measurement window for memory
+    usage, but always retains the sparse Top-80 columns needed by LightGBM.
+    """
+    try:
+        payload = json.loads(_MODEL_SCHEMA_PATH.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return set()
+    names: set[str] = set()
+    for columns in payload.values() if isinstance(payload, dict) else []:
+        if isinstance(columns, list):
+            names.update(str(column) for column in columns)
+    return names
 
 
 def _normalise(name: str) -> str:
@@ -103,6 +125,7 @@ def _import_wide_raw_result(
     wafer_override: str | None,
     reset: bool,
     measurement_limit: int,
+    include_model_features: bool,
 ) -> dict[str, Any]:
     if len(table) < 6:
         raise CsvImportError("RawResult CSV 缺少測項描述列或 Device 資料列")
@@ -122,7 +145,13 @@ def _import_wide_raw_result(
     sensor_columns = [
         index for index in candidate_columns if re.search(r"\.sensor\d+#", header[index])
     ]
-    selected_columns = sorted(set(candidate_columns[:measurement_limit]) | set(sensor_columns))
+    model_features = _model_feature_names() if include_model_features else set()
+    model_columns = [
+        index
+        for index in candidate_columns
+        if re.sub(r"[\[\]\{\}:\",]", "_", header[index]) in model_features
+    ]
+    selected_columns = sorted(set(candidate_columns[:measurement_limit]) | set(sensor_columns) | set(model_columns))
     if not selected_columns:
         raise CsvImportError("RawResult CSV 找不到可用的數值測項")
 
@@ -157,7 +186,7 @@ def _import_wide_raw_result(
         fail_events = []
         for column_index, (number, suite, pin, low, high) in column_meta.items():
             cell = _as_float(row[column_index] if column_index < len(row) else "")
-            if cell is not None and (cell < low or cell > high):
+            if cell is not None and (cell < low or cell > high) and len(fail_events) < _MAX_FAIL_EVENTS_PER_DEVICE:
                 fail_events.append(make_fail_event(number, suite, pin, cell, low, high))
         soft_bin = _as_int(row[7] if len(row) > 7 else "", default=1)
         hard_bin = _as_int(row[8] if len(row) > 8 else "", default=soft_bin)
@@ -222,6 +251,7 @@ def import_csv(
     wafer_override: str | None = None,
     reset: bool = True,
     measurement_limit: int = 24,
+    include_model_features: bool = False,
 ) -> dict[str, Any]:
     """Convert a CSV log into the same events used by the OneAPI callback path."""
 
@@ -238,6 +268,7 @@ def import_csv(
             wafer_override=wafer_override,
             reset=reset,
             measurement_limit=max(1, measurement_limit),
+            include_model_features=include_model_features,
         )
 
     header, *raw_rows = table

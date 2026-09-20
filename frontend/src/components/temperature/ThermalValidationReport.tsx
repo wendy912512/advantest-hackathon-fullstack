@@ -66,11 +66,17 @@ export function ThermalValidationReportView({ report }: { report: ThermalValidat
   return (
     <div>
       <SectionHeader id="thermal-validation" label="模型驗證報告" />
+      {report.status === "stale" && report.productionModel && (
+        <div style={{ border: `1px solid ${C.yellow}`, borderRadius: 10, padding: "10px 12px", background: "#fff8e1", color: C.sub, fontSize: 12, lineHeight: 1.6, marginBottom: 12 }}>
+          目前報告仍是舊的 Ridge baseline 結果；實際部署模型已是 <strong>{report.productionModel.name}</strong>。請重新執行 LightGBM 驗證腳本後再把報告檔更新，以下數值不可視為新版模型成績。
+        </div>
+      )}
       <div style={{ border: `1px solid ${C.border}`, borderRadius: 12, padding: 16, background: C.card, boxShadow: C.shadow, marginBottom: 16 }}>
         <div style={{ display: "flex", justifyContent: "space-between", gap: 12, flexWrap: "wrap", marginBottom: 12 }}>
           <div>
             <div style={{ color: C.text, fontFamily: MONO, fontWeight: 700, fontSize: 14 }}>{report.config.model}</div>
             <div style={{ color: C.muted, fontSize: 12, marginTop: 4 }}>Leave-One-Wafer-Out：每一折皆排除目標 wafer，不將驗證 wafer 混入訓練。</div>
+            {report.productionModel && <div style={{ color: C.blue, fontFamily: MONO, fontSize: 11, marginTop: 6 }}>目前部署：{report.productionModel.name} · {report.productionModel.featureSchema}</div>}
           </div>
           <div style={{ color: C.muted, fontFamily: MONO, fontSize: 11 }}>產生時間 {new Date(report.generatedAt).toLocaleString("zh-TW", { hour12: false })}</div>
         </div>

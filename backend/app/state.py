@@ -298,7 +298,7 @@ class RuntimeState:
         hard_bins = bin_breakdown(entries, "hardBin")
         wafer_items = [wafer_list_item(name, values) for name, values in sorted(wafers.items())]
         issues = [
-            f"Wafer {item['wafer']} pass rate {item['passRate'] * 100:.1f}% is below 80%"
+            f"Wafer {item['wafer']}: {item['status']}"
             for item in wafer_items if item["hasIssue"]
         ]
         return {
@@ -313,13 +313,14 @@ class RuntimeState:
             "wafers": wafer_items,
         }
 
-    def trends(self, lot: str | None = None, wafer: str | None = None) -> list[dict[str, Any]]:
+    def trends(self, lot: str | None = None, wafer: str | None = None, site: int | None = None) -> list[dict[str, Any]]:
         with self.lock:
             entries = [
-                entry.model_copy(deep=True)
+                entry
                 for entry in self.devices
                 if (lot is None or entry.device.lot == lot)
                 and (wafer is None or entry.device.wafer == wafer)
+                and (site is None or entry.device.site == site)
             ]
         # 每條趨勢只能對應一個實際測項；不能把不同單位/量級的測項平均成 ALL。
         by_test: dict[tuple[int, str], list[dict[str, Any]]] = defaultdict(list)
@@ -862,9 +863,28 @@ def bin_breakdown(
     ]
 
 
+_MOCK_WAFER_ACCEPTANCE_STATUS: dict[str, tuple[str, str]] = {
+    "W01": ("SITE_UNBALANCE", "Site 之間的量測分布不一致"),
+    "W03": ("LOW_YIELD", "Wafer 良率低於 80%"),
+    "W09": ("LOW_YIELD", "Wafer 良率低於 80%"),
+    "W14": ("MEAN_TREND_UP", "Touchdown 平均值持續上升"),
+    "W18": ("MEAN_TREND_DOWN", "Touchdown 平均值持續下降"),
+    "W23": ("STDEV_TREND_UP", "Touchdown 波動逐漸變大"),
+    "W25": ("STDEV_TREND_DOWN", "Touchdown 波動逐漸變小且偏離基準"),
+}
+
+
 def wafer_list_item(wafer: str, entries: list[DeviceTestResult]) -> dict[str, Any]:
     pass_rate = sum(entry.device.pf == "PASS" for entry in entries) / len(entries)
-    return {"wafer": wafer, "totalDevices": len(entries), "passRate": pass_rate, "hasIssue": pass_rate < 0.8}
+    status, reason = _MOCK_WAFER_ACCEPTANCE_STATUS.get(wafer, ("NORMAL", "符合目前 wafer-level 驗收規則"))
+    return {
+        "wafer": wafer,
+        "totalDevices": len(entries),
+        "passRate": pass_rate,
+        "status": status,
+        "statusReason": reason,
+        "hasIssue": status != "NORMAL",
+    }
 
 
 def lot_list_item(lot: str, entries: list[DeviceTestResult]) -> dict[str, Any]:

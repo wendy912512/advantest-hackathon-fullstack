@@ -28,7 +28,7 @@ export default function SitesPage() {
   const [tab, setTab] = useState<Tab>("table");
   const [waferFails, setWaferFails] = useState<WaferFails | undefined>(undefined);
   const [selectedTrendEvent, setSelectedTrendEvent] = useState("");
-  const { series: trendSeries } = useTrendSeries(selectedLot, selectedWafer);
+  const { series: trendSeries } = useTrendSeries(selectedLot, selectedWafer, selectedSite);
 
   // 只要 dashboard 還沒載入完成，第一次 render 時 selectedLot/selectedWafer
   // 會是空字串；資料到位後補上預設值（目前即時監控的 lot/wafer）。

@@ -6,6 +6,9 @@ import json
 import os
 from pathlib import Path
 import re
+import subprocess
+import sys
+import threading
 
 from fastapi import FastAPI, HTTPException, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
@@ -14,6 +17,49 @@ from pydantic import BaseModel, Field
 from .csv_import import CsvImportError, import_csv
 from .schemas import DeviceTestResult, LotStart, Measurement, ThermalPredictRequest, WaferStart
 from .state import runtime_state
+from .thermal import production_model_info
+
+
+BACKEND_DIR = Path(__file__).resolve().parents[1]
+VALIDATION_REPORT_PATH = BACKEND_DIR / "reports" / "thermal_validation.json"
+VALIDATION_SCRIPT_PATH = BACKEND_DIR / "scripts" / "validate_thermal_model.py"
+MODEL_DIR = BACKEND_DIR / "training" / "models"
+_validation_job_lock = threading.Lock()
+_validation_job_running = False
+
+
+def _validation_report_needs_refresh() -> bool:
+    if not VALIDATION_REPORT_PATH.is_file():
+        return True
+    report_time = VALIDATION_REPORT_PATH.stat().st_mtime
+    model_paths = list(MODEL_DIR.glob("model_sensor*.pkl")) + [MODEL_DIR / "feature_schema.json"]
+    return any(path.is_file() and path.stat().st_mtime > report_time for path in model_paths)
+
+
+def _start_validation_report_job() -> None:
+    global _validation_job_running
+    if not _validation_report_needs_refresh():
+        return
+    with _validation_job_lock:
+        if _validation_job_running:
+            return
+        _validation_job_running = True
+
+    def run() -> None:
+        global _validation_job_running
+        try:
+            subprocess.run(
+                [sys.executable, str(VALIDATION_SCRIPT_PATH)],
+                cwd=str(BACKEND_DIR.parent),
+                check=False,
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.STDOUT,
+            )
+        finally:
+            with _validation_job_lock:
+                _validation_job_running = False
+
+    threading.Thread(target=run, name="thermal-validation-report", daemon=True).start()
 
 
 @asynccontextmanager
@@ -45,11 +91,12 @@ async def lifespan(_: FastAPI):
                     lot_override="A12345",
                     wafer_override=wafer,
                     reset=index == 0,
-                    measurement_limit=2541,
+                    measurement_limit=24,
                 )
             except (CsvImportError, OSError):
                 # CSV mock 只是本機示範資料，單一檔案載入失敗時繼續載入其他 wafer。
                 continue
+    _start_validation_report_job()
     yield
 
 
@@ -128,8 +175,8 @@ def wafer_distribution(lot: str, wafer: str, event: str | None = None) -> dict:
 
 
 @app.get("/api/trends")
-def trends(lot: str | None = None, wafer: str | None = None) -> list[dict]:
-    return runtime_state.trends(lot=lot, wafer=wafer)
+def trends(lot: str | None = None, wafer: str | None = None, site: int | None = None) -> list[dict]:
+    return runtime_state.trends(lot=lot, wafer=wafer, site=site)
 
 
 @app.get("/api/failures/explain")
@@ -168,10 +215,26 @@ def thermal_validation_report() -> dict:
     metrics while an operator is viewing the dashboard.
     """
     report_path = Path(__file__).resolve().parents[1] / "reports" / "thermal_validation.json"
+    if _validation_job_running or _validation_report_needs_refresh():
+        _start_validation_report_job()
+        return {
+            "status": "generating",
+            "message": "模型驗證報告由系統自動產生中，完成後會在此頁更新。",
+        }
     if not report_path.is_file():
-        raise HTTPException(status_code=404, detail="Thermal validation report has not been generated")
+        _start_validation_report_job()
+        return {
+            "status": "generating",
+            "message": "模型驗證報告由系統自動產生中，完成後會在此頁更新。",
+        }
     try:
-        return json.loads(report_path.read_text(encoding="utf-8"))
+        report = json.loads(report_path.read_text(encoding="utf-8"))
+        production = production_model_info()
+        if production:
+            report["productionModel"] = production
+            configured_model = str(report.get("config", {}).get("model", ""))
+            report["status"] = "stale" if "ridge" in configured_model.lower() else "current"
+        return report
     except (OSError, json.JSONDecodeError) as error:
         raise HTTPException(status_code=500, detail="Thermal validation report is unreadable") from error
 

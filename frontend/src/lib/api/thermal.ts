@@ -1,4 +1,4 @@
-import type { ThermalValidationReport, WaferThermal } from "./types";
+import type { ThermalValidationPending, ThermalValidationReport, WaferThermal } from "./types";
 import { apiClient } from "./client";
 import { getCsvWaferThermal } from "./csvFallback";
 import { fetchWithFallback } from "./withFallback";
@@ -18,10 +18,10 @@ export async function fetchWaferThermal(lot: string, wafer: string): Promise<Waf
 
 // 驗證是離線產生的報告，後端未產生或尚未部署時回傳 undefined，避免把
 // CSV fallback 的預測資料誤當成正式模型驗證結果。
-export async function fetchThermalValidationReport(): Promise<ThermalValidationReport | undefined> {
+export async function fetchThermalValidationReport(): Promise<ThermalValidationReport | ThermalValidationPending | undefined> {
   try {
     const { data } = await apiClient.get<ThermalValidationReport>("/thermal/validation-report");
-    return data;
+    return data.status === "generating" ? data as ThermalValidationPending : data;
   } catch {
     return undefined;
   }

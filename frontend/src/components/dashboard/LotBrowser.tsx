@@ -10,8 +10,19 @@ import { WaferMap } from "@/components/common/WaferMap";
 function WaferThumb({ wafer, active, onClick }: { wafer: WaferListItem; active: boolean; onClick: () => void }) {
   const pr = wafer.passRate * 100;
   const dotColor = pr >= 90 ? C.green : pr >= 80 ? "#D97706" : C.red;
+  const statusLabel: Record<string, string> = {
+    NORMAL: "Normal",
+    LOW_YIELD: "Low yield",
+    SITE_UNBALANCE: "Site unbalance",
+    MEAN_TREND_UP: "Mean trend up",
+    MEAN_TREND_DOWN: "Mean trend down",
+    STDEV_TREND_UP: "Stdev trend up",
+    STDEV_TREND_DOWN: "Stdev trend down",
+  };
+  const status = wafer.status ?? (wafer.hasIssue ? "LOW_YIELD" : "NORMAL");
+  const statusColor = status === "NORMAL" ? C.green : status === "LOW_YIELD" ? C.red : "#B45309";
   return (
-    <button onClick={onClick} style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 4, background: "transparent", border: "none", cursor: "pointer", padding: 4 }}>
+    <button title={wafer.statusReason} onClick={onClick} style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 4, background: "transparent", border: "none", cursor: "pointer", padding: 4 }}>
       <div
         style={{
           width: 42,
@@ -29,6 +40,7 @@ function WaferThumb({ wafer, active, onClick }: { wafer: WaferListItem; active: 
         <span style={{ fontFamily: MONO, fontSize: 10, fontWeight: 500, color: dotColor }}>{Math.round(pr)}%</span>
       </div>
       <span style={{ fontFamily: MONO, fontSize: 11, color: C.muted }}>{wafer.wafer}</span>
+      <span style={{ fontSize: 9, color: statusColor, whiteSpace: "nowrap" }}>{statusLabel[status]}</span>
     </button>
   );
 }
