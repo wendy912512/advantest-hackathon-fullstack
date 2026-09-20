@@ -7,9 +7,14 @@ import type { NextConfig } from "next";
 // 打到後端。用 rewrite 把 /api/* 轉發到後端，瀏覽器端就不需要處理跨網域
 // CORS，也不用另外設定 NEXT_PUBLIC_API_BASE_URL。
 const BACKEND_ORIGIN = process.env.BACKEND_ORIGIN ?? "http://127.0.0.1:8000";
+const isStaticExport = process.env.STATIC_EXPORT === "true";
 
 const nextConfig: NextConfig = {
+  // ACS VM 沒有 npm 安裝權限時，可用 STATIC_EXPORT=true 建置成純靜態檔案，
+  // 再以 Python 內建 HTTP server 提供網頁。
+  output: isStaticExport ? "export" : undefined,
   async rewrites() {
+    if (isStaticExport) return [];
     return [
       {
         source: "/api/:path*",
