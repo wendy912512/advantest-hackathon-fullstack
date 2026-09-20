@@ -98,7 +98,7 @@ function AlertCard({ alert, isLatest, flash }: { alert: UnifiedAlert; isLatest: 
           </div>
 
           <div style={{ background: C.surfaceVariant, borderRadius: 8, padding: "10px 12px", marginBottom: 10 }}>
-            <div style={{ fontSize: 11, fontWeight: 700, color: C.muted, letterSpacing: "0.06em", marginBottom: 5 }}>異常原因</div>
+            <div style={{ fontSize: 11, fontWeight: 700, color: C.muted, letterSpacing: "0.06em", marginBottom: 5 }}>判定原因</div>
             <div style={{ fontSize: 13, color: C.sub, lineHeight: 1.6 }}>{alert.message}</div>
           </div>
         </>

@@ -335,11 +335,18 @@ class RuntimeState:
             value = result.value or 0.0
             reasons = []
             if result.highLimit is not None and value > result.highLimit:
-                reasons.append(f"Value {value:.4f} exceeds high limit {result.highLimit:.4f}")
+                reasons.append(
+                    f"實際值 {value:.3f} 超過上限 {result.highLimit:.3f}，因此判定為測試失敗"
+                )
             if result.lowLimit is not None and value < result.lowLimit:
-                reasons.append(f"Value {value:.4f} is below low limit {result.lowLimit:.4f}")
+                reasons.append(
+                    f"實際值 {value:.3f} 低於下限 {result.lowLimit:.3f}，因此判定為測試失敗"
+                )
             if not reasons:
-                reasons.append(f"Soft bin {entry.device.softBin} ({bin_label(entry.device.softBin)}) reported a failure")
+                reasons.append(
+                    f"測試結果判定為 Fail；Soft Bin {entry.device.softBin}"
+                    f"（{bin_label(entry.device.softBin)}）"
+                )
             explanations.append({
                 "pid": entry.device.pid,
                 "site": entry.device.site,
