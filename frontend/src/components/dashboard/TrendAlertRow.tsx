@@ -82,7 +82,7 @@ export function TrendAlertRow({ series }: { series: TrendSeries }) {
             LCL: <span style={{ color: C.lcl, fontWeight: 600 }}>{series.lcl.toFixed(3)}</span>
           </span>
           <span style={{ color: C.muted, fontFamily: "inherit" }}>
-            單一 wafer，{chartData.length} 個量測點
+            單一 wafer / Site {series.site}，{chartData.length} 顆 Device 的非 sensor 測項平均值
           </span>
         </div>
         <ResponsiveContainer width="100%" height={160}>
