@@ -123,6 +123,7 @@ export interface TrendAlert {
 
 export interface TrendPoint {
   timestamp: string; // ISO
+  wafer?: string; // CSV-backed trend aggregation key, absent for legacy live events
   value: number;
 }
 

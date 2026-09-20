@@ -1,5 +1,6 @@
 import type { DashboardSnapshot } from "./types";
 import { apiClient } from "./client";
+import { getCsvDashboard } from "./csvFallback";
 import { fetchWithFallback } from "./withFallback";
 
 export async function fetchDashboardSnapshot(): Promise<DashboardSnapshot> {
@@ -8,16 +9,7 @@ export async function fetchDashboardSnapshot(): Promise<DashboardSnapshot> {
       const { data } = await apiClient.get<DashboardSnapshot>("/dashboard/snapshot");
       return data;
     },
-    () => ({
-      generatedAt: new Date().toISOString(),
-      currentLot: "-",
-      currentWafer: "-",
-      totalDevicesTested: 0,
-      overallPassRate: 0,
-      siteSummaries: [],
-      trendAlerts: [],
-      recentResults: [],
-    }),
+    getCsvDashboard,
     (data) => !data || data.totalDevicesTested === 0,
   );
 }

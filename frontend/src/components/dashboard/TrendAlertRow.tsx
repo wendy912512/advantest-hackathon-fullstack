@@ -29,11 +29,18 @@ function AnomalyDot(props: { cx?: number; cy?: number; payload?: { anomaly?: boo
 }
 
 export function TrendAlertRow({ series }: { series: TrendSeries }) {
-  const chartData = series.points.map((p, i) => ({
-    x: i + 1,
-    value: p.value,
-    anomaly: p.value > series.ucl || p.value < series.lcl,
+  const chartData = series.points.map((point, index) => ({
+    x: index + 1,
+    value: point.value,
+    timestamp: point.timestamp,
+    anomaly: point.value > series.ucl || point.value < series.lcl,
   }));
+  const uniqueAlerts = series.alerts.filter((alert, index, alerts) =>
+    alerts.findIndex((candidate) => candidate.message === alert.message) === index,
+  );
+  const badgeAlerts = uniqueAlerts.filter((alert, index, alerts) =>
+    alerts.findIndex((candidate) => candidate.direction === alert.direction) === index,
+  );
 
   return (
     <div style={{ border: `1px solid ${C.border}`, borderRadius: 12, marginBottom: 10, overflow: "hidden", boxShadow: C.shadow }}>
@@ -41,7 +48,7 @@ export function TrendAlertRow({ series }: { series: TrendSeries }) {
         {series.alerts.length === 0 && (
           <span style={{ fontSize: 12, fontWeight: 600, padding: "3px 10px", borderRadius: 100, background: C.greenBg, color: C.green }}>目前無告警</span>
         )}
-        {series.alerts.map((alert) => (
+        {badgeAlerts.map((alert) => (
           <span
             key={alert.id}
             style={{ fontSize: 12, fontWeight: 600, padding: "3px 10px", borderRadius: 100, background: alertBg(alert), color: alertColor(alert) }}
@@ -57,7 +64,7 @@ export function TrendAlertRow({ series }: { series: TrendSeries }) {
         </span>
       </div>
       <div style={{ background: C.surface, padding: "8px 16px 4px" }}>
-        {series.alerts.map((alert) => (
+          {uniqueAlerts.map((alert) => (
           <div key={alert.id} style={{ fontSize: 12, color: C.sub, padding: "4px 0" }}>
             {alert.message}
           </div>
@@ -74,16 +81,20 @@ export function TrendAlertRow({ series }: { series: TrendSeries }) {
           <span style={{ color: C.muted }}>
             LCL: <span style={{ color: C.lcl, fontWeight: 600 }}>{series.lcl.toFixed(3)}</span>
           </span>
+          <span style={{ color: C.muted, fontFamily: "inherit" }}>
+            單一 wafer，{chartData.length} 個量測點
+          </span>
         </div>
         <ResponsiveContainer width="100%" height={160}>
           <LineChart data={chartData} margin={{ top: 8, right: 20, bottom: 0, left: 32 }}>
             <CartesianGrid strokeDasharray="3 3" stroke={C.borderLight} />
-            <XAxis dataKey="x" tick={{ fontSize: 10, fill: C.muted }} tickLine={false} axisLine={false} />
+            <XAxis dataKey="x" interval={2} tick={{ fontSize: 10, fill: C.muted }} tickLine={false} axisLine={false} />
             <YAxis tick={{ fontSize: 10, fill: C.muted }} tickLine={false} axisLine={false} width={30} />
             <Tooltip
               contentStyle={{ background: C.card, border: `1px solid ${C.border}`, borderRadius: 8, fontSize: 12, boxShadow: C.shadowMd }}
               itemStyle={{ color: C.text }}
               labelStyle={{ color: C.muted }}
+              labelFormatter={(label) => `測量序號 ${label}`}
             />
             <ReferenceLine y={series.ucl} stroke={C.ucl} strokeDasharray="4 2" strokeWidth={1} label={{ value: "UCL", position: "right", fontSize: 10, fill: C.ucl }} />
             <ReferenceLine y={series.lcl} stroke={C.lcl} strokeDasharray="4 2" strokeWidth={1} label={{ value: "LCL", position: "right", fontSize: 10, fill: C.lcl }} />

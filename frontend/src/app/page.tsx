@@ -14,11 +14,10 @@ import { SiteCard, type SiteCardData } from "@/components/dashboard/SiteCard";
 import { TrendAlertRow } from "@/components/dashboard/TrendAlertRow";
 import { FailEventsTable } from "@/components/dashboard/FailEventsTable";
 
-type Tab = "table" | "wafer" | "trend";
+type Tab = "table" | "trend";
 
 export default function SitesPage() {
   const { dashboard, lots: rawLots } = useAppData();
-  const { series: trendSeries } = useTrendSeries();
   const lots = useFilterableLots(rawLots, dashboard);
 
   const [selectedLot, setSelectedLot] = useState(dashboard?.currentLot ?? "");
@@ -28,6 +27,7 @@ export default function SitesPage() {
   const [selectedSite, setSelectedSite] = useState<number | null>(null);
   const [tab, setTab] = useState<Tab>("table");
   const [waferFails, setWaferFails] = useState<WaferFails | undefined>(undefined);
+  const { series: trendSeries } = useTrendSeries(selectedLot, selectedWafer);
 
   // 只要 dashboard 還沒載入完成，第一次 render 時 selectedLot/selectedWafer
   // 會是空字串；資料到位後補上預設值（目前即時監控的 lot/wafer）。
@@ -130,7 +130,7 @@ export default function SitesPage() {
       <div style={{ marginBottom: 20 }}>
         <div style={{ color: C.blue, fontFamily: MONO, fontSize: 11, fontWeight: 700, letterSpacing: "0.1em", marginBottom: 7 }}>LIVE QUALITY MONITOR</div>
         <h1 style={{ color: C.text, fontSize: 25, fontWeight: 650, letterSpacing: "-0.02em", margin: 0 }}>Site 即時品質監控</h1>
-        <p style={{ color: C.muted, fontSize: 13, margin: "7px 0 0" }}>依 Lot、Wafer 與 Site 查看通過率、Fail 事件、Wafer Map 與趨勢告警。</p>
+        <p style={{ color: C.muted, fontSize: 13, margin: "7px 0 0" }}>先看整片 Wafer Map，再依 Site 查看 Fail 事件與趨勢告警。</p>
       </div>
       <LotWaferFilter
         lots={lots}
@@ -152,7 +152,7 @@ export default function SitesPage() {
 
       <div style={{ marginBottom: 32 }}>
         <div style={{ display: "flex", gap: 4, padding: 4, background: C.surfaceVariant, borderRadius: 10, width: "fit-content", marginBottom: 16 }}>
-          {(["table", "wafer", "trend"] as const).map((t) => (
+          {(["table", "trend"] as const).map((t) => (
             <button
               key={t}
               onClick={() => setTab(t)}
@@ -168,41 +168,12 @@ export default function SitesPage() {
                 boxShadow: tab === t ? C.shadow : "none",
               }}
             >
-              {t === "table" ? "Table" : t === "wafer" ? "Wafer Map" : "Trend Alert"}
+              {t === "table" ? "Table" : "Trend Alert"}
             </button>
           ))}
         </div>
 
-        {tab === "wafer" ? (
-          waferMap ? (
-            <div>
-              <SectionHeader id="wafer-map" label="Wafer Map" />
-              <div style={{ border: `1px solid ${C.border}`, borderRadius: 12, padding: 16, background: C.card, boxShadow: C.shadow }}>
-                <div style={{ display: "flex", flexWrap: "wrap", gap: 20, marginBottom: 16 }}>
-                  <div>
-                    <div style={{ fontFamily: MONO, fontSize: 11, color: C.muted, letterSpacing: "0.06em", marginBottom: 4 }}>LOT ID</div>
-                    <div style={{ fontFamily: MONO, fontSize: 14, fontWeight: 600, color: C.text }}>{selectedLot}</div>
-                  </div>
-                  <div>
-                    <div style={{ fontFamily: MONO, fontSize: 11, color: C.muted, letterSpacing: "0.06em", marginBottom: 4 }}>WAFER</div>
-                    <div style={{ fontFamily: MONO, fontSize: 14, fontWeight: 600, color: C.text }}>{selectedWafer}</div>
-                  </div>
-                  <div>
-                    <div style={{ fontFamily: MONO, fontSize: 11, color: C.muted, letterSpacing: "0.06em", marginBottom: 4 }}>PASS RATE</div>
-                    <div style={{ fontFamily: MONO, fontSize: 14, fontWeight: 600, color: waferPassRatePct >= 80 ? C.green : C.red }}>{waferPassRatePct.toFixed(1)}%</div>
-                  </div>
-                </div>
-                <div style={{ display: "flex", justifyContent: "center" }}>
-                  <WaferMap data={waferMap} />
-                </div>
-              </div>
-            </div>
-          ) : (
-            <div style={{ textAlign: "center", padding: "32px 16px", color: C.muted, fontSize: 14, border: `1px dashed ${C.border}`, borderRadius: 12, background: C.card }}>
-              載入 Wafer Map 資料中…
-            </div>
-          )
-        ) : selectedSite == null ? (
+        {selectedSite == null ? (
           <div style={{ textAlign: "center", padding: "32px 16px", color: C.muted, fontSize: 14, border: `1px solid ${C.border}`, borderRadius: 12, background: C.card }}>
             請先在上方選擇一個 Site
           </div>
@@ -222,6 +193,35 @@ export default function SitesPage() {
           )
         ) : (
           <FailEventsTable key={`${selectedLot}/${selectedWafer}/${selectedSite}`} rows={failRows} title={`Fail 異常資料 — Site ${selectedSite}`} />
+        )}
+      </div>
+
+      <div style={{ marginBottom: 32 }}>
+        <SectionHeader id="wafer-map" label={`Wafer Map — ${selectedLot} / ${selectedWafer}`} />
+        {waferMap ? (
+          <div style={{ border: `1px solid ${C.border}`, borderRadius: 12, padding: 16, background: C.card, boxShadow: C.shadow }}>
+            <div style={{ display: "flex", flexWrap: "wrap", gap: 20, marginBottom: 16 }}>
+              <div>
+                <div style={{ fontFamily: MONO, fontSize: 11, color: C.muted, letterSpacing: "0.06em", marginBottom: 4 }}>LOT ID</div>
+                <div style={{ fontFamily: MONO, fontSize: 14, fontWeight: 600, color: C.text }}>{selectedLot}</div>
+              </div>
+              <div>
+                <div style={{ fontFamily: MONO, fontSize: 11, color: C.muted, letterSpacing: "0.06em", marginBottom: 4 }}>WAFER</div>
+                <div style={{ fontFamily: MONO, fontSize: 14, fontWeight: 600, color: C.text }}>{selectedWafer}</div>
+              </div>
+              <div>
+                <div style={{ fontFamily: MONO, fontSize: 11, color: C.muted, letterSpacing: "0.06em", marginBottom: 4 }}>PASS RATE</div>
+                <div style={{ fontFamily: MONO, fontSize: 14, fontWeight: 600, color: waferPassRatePct >= 80 ? C.green : C.red }}>{waferPassRatePct.toFixed(1)}%</div>
+              </div>
+            </div>
+            <div style={{ display: "flex", justifyContent: "center" }}>
+              <WaferMap data={waferMap} />
+            </div>
+          </div>
+        ) : (
+          <div style={{ textAlign: "center", padding: "32px 16px", color: C.muted, fontSize: 14, border: `1px dashed ${C.border}`, borderRadius: 12, background: C.card }}>
+            載入 Wafer Map 資料中…
+          </div>
         )}
       </div>
 

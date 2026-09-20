@@ -1,7 +1,16 @@
 import type {
+  DashboardSnapshot,
+  DeviceTestResult,
+  DistributionEvent,
+  WaferDistribution,
+  FailureExplanation,
+  LotListItem,
+  LotSummary,
   SensorStage,
+  SiteSummary,
   ThermalStatus,
   ThermalVerdict,
+  TrendSeries,
   WaferFails,
   WaferMapData,
   WaferThermal,
@@ -9,11 +18,61 @@ import type {
 import thermalFixture from "./thermalFixture.json";
 import failFixtures from "./failFixtures.json";
 import waferMapFixtures from "./waferMapFixtures.json";
+import csvSummaryFixtures from "./csvSummaryFixtures.json";
+import csvDistributionFixtures from "./csvDistributionFixtures.json";
+import csvTrendFixtures from "./csvTrendFixtures.json";
 
 type FixtureMap = Record<string, WaferMapData>;
 type FailFixture = { events: WaferFails["events"]; rows: WaferFails["rows"] };
+type DistributionFixture = {
+  events: DistributionEvent[];
+  byEvent: Record<string, WaferDistribution>;
+};
 
 const LIVE_LOT = "A12345";
+
+type SummaryFixtures = {
+  dashboard: DashboardSnapshot;
+  siteSummaries: SiteSummary[];
+  siteResults: Record<string, DeviceTestResult[]>;
+  lots: LotListItem[];
+  lotSummaries: Record<string, LotSummary | null>;
+  trends: TrendSeries[];
+  explanations: FailureExplanation[];
+};
+
+const summaryFixtures = csvSummaryFixtures as unknown as SummaryFixtures;
+
+export function getCsvDashboard(): DashboardSnapshot {
+  return summaryFixtures.dashboard;
+}
+
+export function getCsvSiteSummaries(): SiteSummary[] {
+  return summaryFixtures.siteSummaries;
+}
+
+export function getCsvSiteResults(site: number): DeviceTestResult[] {
+  return summaryFixtures.siteResults[String(site)] ?? [];
+}
+
+export function getCsvLots(): LotListItem[] {
+  return summaryFixtures.lots;
+}
+
+export function getCsvLotSummary(lot: string): LotSummary | undefined {
+  return summaryFixtures.lotSummaries[lot] ?? undefined;
+}
+
+export function getCsvTrends(lot?: string, wafer?: string): TrendSeries[] {
+  if (lot === LIVE_LOT && wafer) {
+    return (csvTrendFixtures as Record<string, TrendSeries[]>)[wafer] ?? [];
+  }
+  return summaryFixtures.trends;
+}
+
+export function getCsvExplanations(limit: number): FailureExplanation[] {
+  return summaryFixtures.explanations.slice(0, limit);
+}
 
 export function getCsvWaferMap(lot: string, wafer: string): WaferMapData | undefined {
   if (lot !== LIVE_LOT) return undefined;
@@ -25,6 +84,21 @@ export function getCsvWaferFails(lot: string, wafer: string): WaferFails | undef
   if (lot !== LIVE_LOT) return undefined;
   const fixture = (failFixtures as Record<string, FailFixture>)[wafer];
   return fixture ? { lot, wafer, events: fixture.events, rows: fixture.rows } : undefined;
+}
+
+export function getCsvWaferDistribution(
+  lot: string,
+  wafer: string,
+  selectedEvent?: string,
+): WaferDistribution | undefined {
+  if (lot !== LIVE_LOT) return undefined;
+  const fixture = (csvDistributionFixtures as Record<string, DistributionFixture>)[wafer];
+  if (!fixture) return undefined;
+  const event = selectedEvent && fixture.byEvent[selectedEvent]
+    ? selectedEvent
+    : fixture.events[0]?.event;
+  const selected = event ? fixture.byEvent[event] : undefined;
+  return selected ? { ...selected, lot, wafer, events: fixture.events } : undefined;
 }
 
 const COMPLETED_SENSORS = 3;
