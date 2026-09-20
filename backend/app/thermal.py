@@ -24,8 +24,10 @@ from __future__ import annotations
 
 import re
 from collections.abc import Iterable
+import json
 from pathlib import Path
 import pickle
+from functools import lru_cache
 from typing import Any
 
 from lightgbm import LGBMRegressor
@@ -41,7 +43,7 @@ WARN_MARGIN = 0.1
 MIN_TRAIN_DEVICES = 8
 TOP_FEATURES = 80
 DEFAULT_UNIT = "°C"  # CSV has no unit column; assumed from the task wording.
-MODEL_DIR = Path(__file__).resolve().parents[1] / "models" / "thermal"
+MODEL_DIR = Path(__file__).resolve().parents[1] / "training" / "models"
 
 
 def sensor_index(field: TestResultField) -> int | None:
@@ -172,6 +174,95 @@ def _fit_lightgbm(train_x: np.ndarray, y: np.ndarray, selected: list[int]) -> LG
     )
     model.fit(x, y)
     return model
+
+
+def _sanitize_feature_name(name: str) -> str:
+    return re.sub(r"[\[\]\{\}:\",]", "_", name)
+
+
+@lru_cache(maxsize=6)
+def _production_artifact(sensor: int) -> tuple[LGBMRegressor, list[str]] | None:
+    model_path = MODEL_DIR / f"model_sensor{sensor}.pkl"
+    schema_path = MODEL_DIR / "feature_schema.json"
+    if not model_path.is_file() or not schema_path.is_file():
+        return None
+    try:
+        with model_path.open("rb") as file:
+            model = pickle.load(file)
+        schemas = json.loads(schema_path.read_text(encoding="utf-8"))
+        return model, [str(name) for name in schemas[str(sensor)]]
+    except (OSError, ValueError, KeyError, pickle.PickleError, AttributeError):
+        return None
+
+
+def _production_feature_matrix(
+    all_entries: list[DeviceTestResult],
+    target_entries: list[DeviceTestResult],
+    schema: list[str],
+) -> np.ndarray:
+    """Recreate the uploaded training notebook's feature schema for inference."""
+    raw_by_entry: dict[int, dict[str, float]] = {}
+    touchdown_by_entry: dict[int, int] = {}
+    for entry in all_entries:
+        raw: dict[str, float] = {}
+        for field in entry.results:
+            if field.value is None:
+                continue
+            key = f"{field.testNumber}_{field.testSuiteName}"
+            if field.pinName:
+                key += f"#{field.pinName}"
+            raw[_sanitize_feature_name(key)] = float(field.value)
+        raw_by_entry[id(entry)] = raw
+        try:
+            touchdown_by_entry[id(entry)] = max((int(entry.device.pid) - 1) // 4, 0)
+        except ValueError:
+            touchdown_by_entry[id(entry)] = len(touchdown_by_entry) // 4
+
+    iddq_key = _sanitize_feature_name("80000_Main.IDDQ_flow.IDDQ_A1#IO1")
+    group_values: dict[tuple[str, int], list[float]] = {}
+    for entry in all_entries:
+        value = raw_by_entry[id(entry)].get(iddq_key)
+        if value is not None:
+            group_values.setdefault((entry.device.wafer, touchdown_by_entry[id(entry)]), []).append(value)
+
+    rows: list[list[float]] = []
+    for entry in target_entries:
+        raw = raw_by_entry[id(entry)]
+        touchdown = touchdown_by_entry[id(entry)]
+        group = group_values.get((entry.device.wafer, touchdown), [])
+        values: dict[str, float] = {
+            "Site": float(entry.device.site),
+            "X": float(entry.device.x),
+            "Y": float(entry.device.y),
+            "Touchdown_Idx": float(touchdown),
+        }
+        if group:
+            mean_iddq = sum(group) / len(group)
+            values["Touchdown_Mean_IDDQ_A1"] = mean_iddq
+            if iddq_key in raw:
+                values["Site_Relative_IDDQ_A1"] = raw[iddq_key] - mean_iddq
+        for key, value in raw.items():
+            values[key] = value
+            if "IDDQ" in key:
+                values[f"log_{key}"] = float(np.log(max(abs(value), 1e-3)))
+        rows.append([values.get(name, np.nan) for name in schema])
+    return np.asarray(rows, dtype=float)
+
+
+def production_model_info() -> dict[str, Any] | None:
+    feature_counts = []
+    for sensor in range(1, 7):
+        artifact = _production_artifact(sensor)
+        if artifact is None:
+            return None
+        feature_counts.append(len(artifact[1]))
+    return {
+        "name": "LightGBM",
+        "objective": "Huber / regression per sensor",
+        "featureSchema": "Top-80 causal features",
+        "featureCounts": feature_counts,
+        "modelDirectory": "backend/training/models",
+    }
 
 
 def fit_cross_wafer_predictor(
