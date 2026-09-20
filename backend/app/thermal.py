@@ -308,7 +308,7 @@ def fit_cross_wafer_predictor(
             model, schema = artifact
             matrix = _production_feature_matrix(training_entries + target_rows, target_rows, schema)
             predictor = getattr(model, "booster_", model)
-            return np.asarray(predictor.predict(matrix), dtype=float)
+            return np.asarray(predictor.predict(matrix, num_threads=1), dtype=float)
         logger.error("Thermal model artifact unavailable for sensor %s in %s", target_sensor, MODEL_DIR)
         return np.full(len(target_rows), np.nan)
 

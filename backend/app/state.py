@@ -578,7 +578,7 @@ class RuntimeState:
             entries = [
                 entry.model_copy(deep=True)
                 for entry in self.devices
-                if entry.device.lot == lot
+                if entry.device.lot == lot and entry.device.wafer == wafer
             ]
             is_live = lot == self.lot and wafer == self.wafer
             completed = self.thermal_completed.get((lot, wafer), 0) if is_live else None

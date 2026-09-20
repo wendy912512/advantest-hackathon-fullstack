@@ -87,6 +87,9 @@ def _load_wafer_status_cache() -> None:
 
 @asynccontextmanager
 async def lifespan(_: FastAPI):
+    # Initialize native model runtimes once on startup, before concurrent API
+    # workers can race to unpickle the same LightGBM artifacts.
+    production_model_info()
     # 本機 demo 預設載入 training/Data 的真實 RawResult CSV，讓 Dashboard、
     # Wafer Map 與 Fail Table 都來自同一片 wafer。正式接 OneAPI 時可用
     # ADVANTEST_MOCK_CSV=off 關閉；若找不到檔案則維持空狀態，交給前端 fallback。

@@ -27,6 +27,14 @@ export default function TemperaturePage() {
   const isLive = dashboard != null && selectedLot === dashboard.currentLot && selectedWafer === dashboard.currentWafer;
 
   useEffect(() => {
+    if (!selectedLot && dashboard?.currentLot && dashboard.currentLot !== "-") {
+      // eslint-disable-next-line react-hooks/set-state-in-effect -- Initialize after the asynchronous dashboard request completes.
+      setSelectedLot(dashboard.currentLot);
+      setSelectedWafer(dashboard.currentWafer);
+    }
+  }, [selectedLot, dashboard?.currentLot, dashboard?.currentWafer]);
+
+  useEffect(() => {
     if (!selectedLot) return;
     let cancelled = false;
     fetchLotSummary(selectedLot).then((data) => {
@@ -41,13 +49,16 @@ export default function TemperaturePage() {
   useEffect(() => {
     if (!selectedLot || !selectedWafer || isLive) return;
     let cancelled = false;
-    fetchWaferThermal(selectedLot, selectedWafer).then((data) => {
+    const load = () => fetchWaferThermal(selectedLot, selectedWafer).then((data) => {
       if (cancelled) return;
       setOtherThermal(data);
       setLoadedKey(`${selectedLot}/${selectedWafer}`);
     });
+    load();
+    const interval = setInterval(load, 5000);
     return () => {
       cancelled = true;
+      clearInterval(interval);
     };
   }, [selectedLot, selectedWafer, isLive]);
 
