@@ -101,7 +101,7 @@ class RuntimeState:
     )
     # 即時 wafer 已完成幾個 sensor 測試（ONEAPI 串接後應由收到的 sensor 量測事件
     # 推算；CSV 匯入時所有數值一次到齊，所以用 /api/internal/thermal-progress
-    # 模擬進度）。沒設定時預設 3：sensor1~3 已實測、正要預測 sensor4。
+    # 模擬進度）。沒設定時從 sensor1 開始，避免介面一進來就跳到 sensor4。
     thermal_completed: dict[tuple[str, str], int] = field(default_factory=dict)
     anomaly_engine: AnomalyEngine = field(default_factory=AnomalyEngine, repr=False)
     alert_manager: AlertManager = field(default_factory=AlertManager, repr=False)
@@ -153,13 +153,17 @@ class RuntimeState:
                 self.wafer = "FT"
             self.pending_measurements[measurement.site].append(measurement)
             field = measurement_to_result(measurement)
-            detected = {
-                sensor_index(measurement_to_result(item))
-                for item in self.pending_measurements[measurement.site]
-            }
-            completed = {sensor for sensor in detected if sensor is not None}
-            if completed:
-                self.thermal_completed[(self.lot, self.wafer)] = len(completed)
+            # A stage is completed only when every active site has emitted it.
+            # Taking the current site's count made the UI jump backwards while
+            # sites reported the same sensor out of order.
+            sensor_sets = []
+            for pending in self.pending_measurements.values():
+                detected = {sensor_index(measurement_to_result(item)) for item in pending}
+                sensor_sets.append({sensor for sensor in detected if sensor is not None})
+            if sensor_sets:
+                self.thermal_completed[(self.lot, self.wafer)] = min(
+                    len(sensors) for sensors in sensor_sets
+                )
 
             # Production FT flows can omit TESTEND.  Keep an in-progress row
             # visible, then replace it as soon as the genuine terminal event
