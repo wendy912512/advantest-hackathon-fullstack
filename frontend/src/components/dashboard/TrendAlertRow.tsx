@@ -3,19 +3,19 @@ import type { TrendAlert, TrendDirection, TrendSeries } from "@/lib/api";
 import { C, MONO } from "@/lib/theme";
 
 const DIRECTION_LABELS: Record<TrendDirection, string> = {
-  UP: "↑ Mean Trend Up",
-  DOWN: "↓ Mean Trend Down",
-  STABLE: "Stable",
-  SHIFT: "⚖ Shift / Unbalance",
+  UP: "↑ 持續上升",
+  DOWN: "↓ 持續下降",
+  STABLE: "穩定",
+  SHIFT: "⚖ 平均值位移／波動變化",
 };
 
 function alertColor(alert: TrendAlert) {
-  if (alert.message.includes("Stdev")) return "#B45309";
+  if (alert.message.includes("Stdev") || alert.message.includes("標準差")) return "#B45309";
   return alert.direction === "UP" || alert.direction === "DOWN" ? C.ucl : C.red;
 }
 
 function alertBg(alert: TrendAlert) {
-  if (alert.message.includes("Stdev")) return C.yellowBg;
+  if (alert.message.includes("Stdev") || alert.message.includes("標準差")) return C.yellowBg;
   return alert.direction === "UP" || alert.direction === "DOWN" ? "#FFF3E0" : C.redBg;
 }
 
@@ -30,7 +30,8 @@ function AnomalyDot(props: { cx?: number; cy?: number; payload?: { anomaly?: boo
 
 export function TrendAlertRow({ series }: { series: TrendSeries }) {
   const chartData = series.points.map((point, index) => ({
-    x: index + 1,
+    x: point.sequence ?? index + 1,
+    pid: point.pid,
     value: point.value,
     timestamp: point.timestamp,
     anomaly: point.value > series.ucl || point.value < series.lcl,
@@ -82,7 +83,7 @@ export function TrendAlertRow({ series }: { series: TrendSeries }) {
             LCL: <span style={{ color: C.lcl, fontWeight: 600 }}>{series.lcl.toFixed(3)}</span>
           </span>
           <span style={{ color: C.muted, fontFamily: "inherit" }}>
-            單一 wafer / Site {series.site}，{chartData.length} 顆 Device 的非 sensor 測項平均值
+            單一 wafer / Site {series.site} / {series.testSuiteName}，{chartData.length} 顆 Device 的量測值
           </span>
         </div>
         <ResponsiveContainer width="100%" height={160}>
@@ -94,7 +95,8 @@ export function TrendAlertRow({ series }: { series: TrendSeries }) {
               contentStyle={{ background: C.card, border: `1px solid ${C.border}`, borderRadius: 8, fontSize: 12, boxShadow: C.shadowMd }}
               itemStyle={{ color: C.text }}
               labelStyle={{ color: C.muted }}
-              labelFormatter={(label) => `測量序號 ${label}`}
+              labelFormatter={(label) => `測試順序 ${label}`}
+              formatter={(value, _name, item) => [value, item?.payload?.pid ? `Device ${item.payload.pid}` : "量測值"]}
             />
             <ReferenceLine y={series.ucl} stroke={C.ucl} strokeDasharray="4 2" strokeWidth={1} label={{ value: "UCL", position: "right", fontSize: 10, fill: C.ucl }} />
             <ReferenceLine y={series.lcl} stroke={C.lcl} strokeDasharray="4 2" strokeWidth={1} label={{ value: "LCL", position: "right", fontSize: 10, fill: C.lcl }} />

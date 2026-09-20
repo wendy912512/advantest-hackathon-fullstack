@@ -75,6 +75,17 @@ python backend/scripts/validate_thermal_model.py --eval-dir path/to/eval-csv
 
 舊的 `GET /api/temperature/predict`（site 層級、回傳空值）已不再被前端使用。
 
+## Sites 頁製程趨勢分析
+
+`GET /api/trends?lot={lot}&wafer={wafer}` 會以「Site + 實際測試項目」分組，
+不再把不同測試項目混成 `ALL`。每條序列依 Device 的測試時間排序，前 10 個量測值
+建立 baseline mean 與 sample standard deviation，並以 mean ± 3σ 計算 UCL/LCL；
+少於 18 個量測點時不產生趨勢告警。告警只代表該測項在這片 wafer 內的統計訊號，
+不是把不同測項混合後的平均，也不等同於跨 lot 的製程能力分析。
+
+前端 Trend Alert 會讓使用者選擇同一 Site 的測試項目，圖表 X 軸是實際測試順序，
+tooltip 會顯示 Device PID；正常測項不顯示趨勢卡片。
+
 ## Sites 頁 Fail 異常資料表
 
 `GET /api/lots/{lot}/wafers/{wafer}/fails`：只回傳 Fail 資料，一列 = 一顆 fail device 的一個超標事件（PID、X、Y、High/Low Limit、實際數值、SBin/HBin、事件編號如 `220_Main.Suite1#CP`、事件涵義）。CSV 匯入時會檢查全部約 3000 個測項有沒有超出上下限（真實 W01：23 個事件、34 筆、12 顆 fail device），`events` 是給前端下拉選單用的事件清單。

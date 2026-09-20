@@ -303,27 +303,32 @@ class RuntimeState:
                 if (lot is None or entry.device.lot == lot)
                 and (wafer is None or entry.device.wafer == wafer)
             ]
-        by_site: dict[int, list[DeviceTestResult]] = defaultdict(list)
+        # 每條趨勢只能對應一個實際測項；不能把不同單位/量級的測項平均成 ALL。
+        by_test: dict[tuple[int, str], list[dict[str, Any]]] = defaultdict(list)
         for entry in entries:
-            by_site[entry.device.site].append(entry)
+            for result in entry.results:
+                if result.value is None or sensor_index(result) is not None:
+                    continue
+                test_name = event_id(result.testNumber, result.testSuiteName, result.pinName)
+                by_test[(entry.device.site, test_name)].append({
+                    "timestamp": entry.device.testTime,
+                    "wafer": entry.device.wafer,
+                    "pid": entry.device.pid,
+                    "value": result.value,
+                })
+
         series = []
-        for site, site_entries in sorted(by_site.items()):
-            points = []
-            for entry in site_entries:
-                values = [result.value for result in entry.results if result.value is not None and sensor_index(result) is None]
-                if values:
-                    points.append({
-                        "timestamp": entry.device.testTime,
-                        "wafer": entry.device.wafer,
-                        "value": mean(values),
-                    })
-            baseline = [point["value"] for point in points[:10]]
+        for (site, test_name), points in sorted(by_test.items()):
+            points.sort(key=lambda point: (point["timestamp"], point["pid"]))
+            for sequence, point in enumerate(points, start=1):
+                point["sequence"] = sequence
+            baseline = [point["value"] for point in points[:TREND_BASELINE_POINTS]]
             baseline_mean = mean(baseline)
-            baseline_std_dev = std_dev(baseline)
-            alerts = detect_trend_alerts(site, points, baseline_mean, baseline_std_dev)
+            baseline_std_dev = sample_std_dev(baseline)
+            alerts = detect_trend_alerts(site, test_name, points, baseline_mean, baseline_std_dev)
             series.append({
                 "site": site,
-                "testSuiteName": "ALL",
+                "testSuiteName": test_name,
                 "points": points,
                 "baselineMean": baseline_mean,
                 "baselineStdDev": baseline_std_dev,
@@ -558,6 +563,8 @@ TREND_CONSECUTIVE_RUN = 6  # 連續 N 點單邊上升/下降算 trend
 TREND_SHIFT_RUN = 8  # 連續 N 點落在 baseline mean 同一側算 shift
 TREND_STDEV_RATIO_UP = 1.6
 TREND_STDEV_RATIO_DOWN = 0.62
+TREND_BASELINE_POINTS = 10
+TREND_MIN_POINTS = 18
 
 
 def longest_run(values: list[float], direction: str) -> int:
@@ -577,21 +584,29 @@ def longest_run(values: list[float], direction: str) -> int:
     return longest
 
 
+def sample_std_dev(values: list[float]) -> float:
+    """Sample standard deviation for control limits (n-1 denominator)."""
+    if len(values) < 2:
+        return 0.0
+    average = mean(values)
+    return sqrt(sum((value - average) ** 2 for value in values) / (len(values) - 1))
+
+
 def detect_trend_alerts(
     site: int,
+    test_name: str,
     points: list[dict[str, Any]],
     baseline_mean: float,
     baseline_std_dev: float,
 ) -> list[dict[str, Any]]:
-    """Port of detectTrendAlerts() in frontend/src/lib/api/mock.ts.
+    """Apply control-chart rules to one Site and one real test item.
 
-    Previously /api/trends only returned the raw baseline/UCL/LCL numbers and
-    always an empty alerts list — none of the actual Mean/Stdev Trend or Shift
-    judgement logic existed server-side, only in the frontend mock. This
-    brings that logic here so it runs against real measurement data.
+    The caller has already separated test items and ordered points by test
+    timestamp. This function deliberately does not compare unlike tests or
+    treat the first ten points as a production-wide reference population.
     """
     values = [point["value"] for point in points]
-    if not values:
+    if len(values) < TREND_MIN_POINTS:
         return []
 
     alerts: list[dict[str, Any]] = []
@@ -601,33 +616,33 @@ def detect_trend_alerts(
     out_of_control = any(v > ucl or v < lcl for v in values)
     if out_of_control:
         alerts.append({
-            "id": f"trend-{site}-ooc",
+            "id": f"trend-{site}-{test_name}-ooc",
             "site": site,
-            "testSuiteName": "ALL",
+            "testSuiteName": test_name,
             "direction": "SHIFT",
             "detectedAt": now_iso(),
-            "message": f"量測值超出管制界線（UCL {ucl:.3f} / LCL {lcl:.3f}）",
+            "message": f"{test_name}：量測值超出管制界線（UCL {ucl:.3f} / LCL {lcl:.3f}）",
         })
 
     rising_run = longest_run(values, "up")
     falling_run = longest_run(values, "down")
     if rising_run >= TREND_CONSECUTIVE_RUN:
         alerts.append({
-            "id": f"trend-{site}-up",
+            "id": f"trend-{site}-{test_name}-up",
             "site": site,
-            "testSuiteName": "ALL",
+            "testSuiteName": test_name,
             "direction": "UP",
             "detectedAt": now_iso(),
-            "message": f"Mean Trend Up：連續 {rising_run} 點持續上升，疑似製程漂移",
+            "message": f"{test_name}：連續 {rising_run} 個 Device 量測值持續上升，疑似製程漂移",
         })
     elif falling_run >= TREND_CONSECUTIVE_RUN:
         alerts.append({
-            "id": f"trend-{site}-down",
+            "id": f"trend-{site}-{test_name}-down",
             "site": site,
-            "testSuiteName": "ALL",
+            "testSuiteName": test_name,
             "direction": "DOWN",
             "detectedAt": now_iso(),
-            "message": f"Mean Trend Down：連續 {falling_run} 點持續下降，疑似製程漂移",
+            "message": f"{test_name}：連續 {falling_run} 個 Device 量測值持續下降，疑似製程漂移",
         })
 
     half = len(values) // 2
@@ -636,25 +651,25 @@ def detect_trend_alerts(
     std_ratio = second_half_std / max(first_half_std, 1e-6)
     if std_ratio > TREND_STDEV_RATIO_UP:
         alerts.append({
-            "id": f"trend-{site}-std-up",
+            "id": f"trend-{site}-{test_name}-std-up",
             "site": site,
-            "testSuiteName": "ALL",
+            "testSuiteName": test_name,
             "direction": "SHIFT",
             "detectedAt": now_iso(),
             "message": (
-                f"Stdev Trend Up：後半段標準差（{second_half_std:.3f}）是前半段"
+                f"{test_name}：後半段標準差（{second_half_std:.3f}）是前半段"
                 f"（{first_half_std:.3f}）的 {std_ratio:.1f} 倍，疑似製程穩定性下降"
             ),
         })
     elif std_ratio < TREND_STDEV_RATIO_DOWN:
         alerts.append({
-            "id": f"trend-{site}-std-down",
+            "id": f"trend-{site}-{test_name}-std-down",
             "site": site,
-            "testSuiteName": "ALL",
+            "testSuiteName": test_name,
             "direction": "SHIFT",
             "detectedAt": now_iso(),
             "message": (
-                f"Stdev Trend Down：後半段標準差（{second_half_std:.3f}）明顯小於前半段"
+                f"{test_name}：後半段標準差（{second_half_std:.3f}）明顯小於前半段"
                 f"（{first_half_std:.3f}），製程波動收斂"
             ),
         })
@@ -665,12 +680,15 @@ def detect_trend_alerts(
         all_below = all(v < baseline_mean for v in last_run)
         if all_above or all_below:
             alerts.append({
-                "id": f"trend-{site}-shift",
+                "id": f"trend-{site}-{test_name}-shift",
                 "site": site,
-                "testSuiteName": "ALL",
+                "testSuiteName": test_name,
                 "direction": "SHIFT",
                 "detectedAt": now_iso(),
-                "message": f"最近 {TREND_SHIFT_RUN} 點全部落在 baseline 平均值同一側，疑似整體位移",
+                "message": (
+                    f"{test_name}：最近 {TREND_SHIFT_RUN} 個 Device 量測值全部"
+                    f"落在 baseline 平均值（{baseline_mean:.3f}）同一側，疑似製程平均位移"
+                ),
             })
 
     return alerts

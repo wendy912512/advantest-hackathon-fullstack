@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useAppData } from "@/components/providers/AppDataProvider";
 import { useFilterableLots } from "@/hooks/useFilterableLots";
 import { useTrendSeries } from "@/hooks/useTrendSeries";
@@ -27,6 +27,7 @@ export default function SitesPage() {
   const [selectedSite, setSelectedSite] = useState<number | null>(null);
   const [tab, setTab] = useState<Tab>("table");
   const [waferFails, setWaferFails] = useState<WaferFails | undefined>(undefined);
+  const [selectedTrendEvent, setSelectedTrendEvent] = useState("");
   const { series: trendSeries } = useTrendSeries(selectedLot, selectedWafer);
 
   // 只要 dashboard 還沒載入完成，第一次 render 時 selectedLot/selectedWafer
@@ -107,6 +108,27 @@ export default function SitesPage() {
     };
   }, [selectedLot, selectedWafer]);
 
+  const siteTrendSeries = useMemo(
+    () => trendSeries?.filter((s) => s.site === selectedSite) ?? [],
+    [trendSeries, selectedSite],
+  );
+  const selectedSeries =
+    siteTrendSeries.find((s) => s.testSuiteName === selectedTrendEvent) ??
+    siteTrendSeries.find((s) => s.alerts.length > 0) ??
+    siteTrendSeries[0];
+
+  useEffect(() => {
+    if (!siteTrendSeries.length) {
+      setSelectedTrendEvent("");
+      return;
+    }
+    if (!siteTrendSeries.some((series) => series.testSuiteName === selectedTrendEvent)) {
+      setSelectedTrendEvent(
+        siteTrendSeries.find((series) => series.alerts.length > 0)?.testSuiteName ?? siteTrendSeries[0].testSuiteName,
+      );
+    }
+  }, [selectedLot, selectedWafer, selectedSite, trendSeries, selectedTrendEvent, siteTrendSeries]);
+
   if (!dashboard) return null;
 
   const siteCards: SiteCardData[] = isLiveWafer
@@ -116,8 +138,6 @@ export default function SitesPage() {
   const waferOptions: WaferListItem[] = lotSummary?.wafers?.length
     ? lotSummary.wafers
     : [{ wafer: dashboard.currentWafer, totalDevices: dashboard.totalDevicesTested, passRate: dashboard.overallPassRate, hasIssue: false }];
-
-  const selectedSeries = trendSeries?.find((s) => s.site === selectedSite);
 
   const failRows = (waferFails?.rows ?? []).filter((r) => r.site === selectedSite);
 
@@ -179,13 +199,32 @@ export default function SitesPage() {
           </div>
         ) : tab === "trend" ? (
           isLiveWafer ? (
-            selectedSeries && selectedSeries.alerts.length > 0 ? (
-              <TrendAlertRow series={selectedSeries} />
-            ) : (
-              <div style={{ textAlign: "center", padding: "32px 16px", color: C.muted, fontSize: 14, border: `1px dashed ${C.border}`, borderRadius: 12, background: C.card }}>
-                目前沒有趨勢異常，不顯示正常趨勢。
-              </div>
-            )
+            <>
+              {siteTrendSeries.length > 1 && (
+                <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 12 }}>
+                  <label htmlFor="trend-test-item" style={{ color: C.muted, fontSize: 12, fontWeight: 600 }}>趨勢測試項目</label>
+                  <select
+                    id="trend-test-item"
+                    value={selectedSeries?.testSuiteName ?? selectedTrendEvent}
+                    onChange={(event) => setSelectedTrendEvent(event.target.value)}
+                    style={{ border: `1px solid ${C.border}`, borderRadius: 8, padding: "7px 10px", background: C.card, color: C.text, fontSize: 12, minWidth: 260 }}
+                  >
+                    {siteTrendSeries.map((series) => (
+                      <option key={series.testSuiteName} value={series.testSuiteName}>
+                        {series.testSuiteName}{series.alerts.length > 0 ? " · 有告警" : ""}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+              )}
+              {selectedSeries && selectedSeries.alerts.length > 0 ? (
+                <TrendAlertRow series={selectedSeries} />
+              ) : (
+                <div style={{ textAlign: "center", padding: "32px 16px", color: C.muted, fontSize: 14, border: `1px dashed ${C.border}`, borderRadius: 12, background: C.card }}>
+                  目前沒有趨勢異常，不顯示正常趨勢。
+                </div>
+              )}
+            </>
           ) : (
             <div style={{ textAlign: "center", padding: "32px 16px", color: C.muted, fontSize: 14, border: `1px dashed ${C.border}`, borderRadius: 12, background: C.card }}>
               歷史批次目前沒有趨勢分析，這個功能只在即時監控時提供。
