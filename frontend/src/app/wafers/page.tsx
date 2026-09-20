@@ -39,6 +39,7 @@ export default function WafersPage() {
   useEffect(() => {
     if (!selectedLot || !selectedWafers.length) {
       // 清除 overlay 選取時，同步清掉上一輪 chart 資料，避免畫面殘留舊線。
+      // eslint-disable-next-line react-hooks/set-state-in-effect -- 選取條件變成空時要立刻清掉舊資料
       setDistribution([]);
       return;
     }
