@@ -37,7 +37,11 @@ export default function WafersPage() {
   }, [selectedLot]);
 
   useEffect(() => {
-    if (!selectedLot || !selectedWafers.length) return;
+    if (!selectedLot || !selectedWafers.length) {
+      // 清除 overlay 選取時，同步清掉上一輪 chart 資料，避免畫面殘留舊線。
+      setDistribution([]);
+      return;
+    }
     let cancelled = false;
     Promise.all(
       selectedWafers.map((wafer) =>
@@ -239,7 +243,10 @@ export default function WafersPage() {
                 全選
               </button>
               <button
-                onClick={() => setSelectedWafers([])}
+                onClick={() => {
+                  setSelectedWafers([]);
+                  setDistribution([]);
+                }}
                 style={{
                   border: "none",
                   background: "transparent",
@@ -293,6 +300,18 @@ export default function WafersPage() {
         </div>
         {distribution?.length ? (
           <DistributionChart data={distribution} />
+        ) : selectedWafers.length === 0 ? (
+          <div
+            style={{
+              minHeight: 320,
+              display: "grid",
+              placeItems: "center",
+              color: C.muted,
+              fontSize: 13,
+            }}
+          >
+            尚未選取 wafer，請按「全選」或選擇要比較的 wafer。
+          </div>
         ) : (
           <div
             style={{
