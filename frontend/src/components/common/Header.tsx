@@ -1,9 +1,11 @@
 "use client";
 
+import Image from "next/image";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import type { SiteSummary } from "@/lib/api";
 import { C, MONO, siteStatus, type SiteStatus } from "@/lib/theme";
+import logoIcon from "@/app/logoicon.svg";
 import { StatusDot } from "./StatusDot";
 import { LiveBadge } from "./LiveBadge";
 
@@ -46,9 +48,7 @@ export function Header({
       style={{ background: C.card, borderBottom: `1px solid ${C.border}`, height: 56, boxShadow: "0 1px 3px rgba(0,0,0,0.06)", flexShrink: 0 }}
     >
       <Link href="/" className="flex items-center gap-2.5 shrink-0" style={{ textDecoration: "none" }}>
-        <div style={{ width: 32, height: 32, borderRadius: 8, background: C.blue, display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
-          <span style={{ fontFamily: MONO, color: "#fff", fontSize: 11, fontWeight: 700 }}>CP</span>
-        </div>
+        <Image src={logoIcon} alt="logo" width={36} height={36} priority style={{ borderRadius: 8, flexShrink: 0 }} />
         <span style={{ fontSize: 18, fontWeight: 500, color: C.text }}>CP Monitor</span>
       </Link>
 

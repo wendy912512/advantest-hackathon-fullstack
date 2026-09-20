@@ -3,14 +3,15 @@
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { C } from "@/lib/theme";
-import { IconChartDonut, IconLayoutDashboard, IconTemperature } from "@tabler/icons-react";
+import { IconLayoutDashboard, IconTemperature } from "@tabler/icons-react";
+import { IconWafer } from "./IconWafer";
 
 // 三個都是真正的路由（不再是同一頁裡的錨點捲動），active 狀態直接比對
 // pathname 就好，不需要像之前那樣用 IntersectionObserver 追蹤目前捲到哪個
 // section。
 export const NAV_ITEMS = [
   { href: "/", label: "Sites", Icon: IconLayoutDashboard },
-  { href: "/wafers", label: "Wafers", Icon: IconChartDonut },
+  { href: "/wafers", label: "Wafers", Icon: IconWafer },
   { href: "/temperature", label: "Thermal", Icon: IconTemperature },
 ] as const;
 
