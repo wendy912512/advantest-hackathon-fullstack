@@ -139,9 +139,12 @@ backend/.venv/bin/uvicorn app.main:app --app-dir backend --reload --port 8000
    `profile_stdev_normalized_slope=0.0003`。告警 evidence 同時保留普通線性回歸與
    Theil–Sen robust slope，方便現場追查是否由單一離群值造成。
 
-目前資料驗證已穩定通過 W01、W03、W09、W14、W18、W23，以及所有正常 wafer；
-W25 的 `STDEV_TREND_DOWN` 標籤目前仍無法從 CSV 中以不誤報正常 wafer 的通用規則
-重現。這不是以 W25 名稱或編號做特例，而是保留為待確認的資料定義問題。
+Wafer Browser 不再使用 W01～W25 的固定狀態對照表；啟動時會以完整 RawResult CSV
+重算每片 wafer 的異常引擎結果，再由 API 回傳 status、statusReason 與 anomalies。
+目前離線規則可重現 W01、W03、W09、W14、W18、W23，以及所有正常 wafer；
+W25 的 `STDEV_TREND_DOWN` 仍未能由現有 CSV 與目前的 stdev 序列定義重現，
+因此 API 會如實回傳 `NORMAL`，不以 W25 編號硬塞異常結果。要讓 W25 通過驗收，
+還需要確認 TrainDataInfo 對「波動趨勢」使用的實際測項／分組／視窗定義。
 
 ### 完整驗證流程（macOS）
 
@@ -153,9 +156,9 @@ backend/.venv/bin/python backend/run_validation.py \
   --data-dir "/Users/linyunhsuan/Desktop/碩士班/梅竹黑客松/training/Data"
 ```
 
-第一個指令必須顯示 `OK`。第二個指令會列出 W01～W25 的判定；目前預期是 W01、
-W03、W09、W14、W18、W23 顯示對應異常，W25 顯示 `FAIL W25: NORMAL`，這代表
-程式尚未取得 W25 的正式判斷依據，不代表測試程式當掉。
+第一個指令必須顯示 `OK`。第二個指令會列出 W01～W25 的規則判定；若 W25 顯示
+`NORMAL`，代表目前資料處理方式尚未取得 `STDEV_TREND_DOWN` 的可重現證據，
+不代表測試程式當掉。
 
 若要驗證 API 與前端資料流，另開終端機啟動：
 

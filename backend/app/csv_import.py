@@ -126,6 +126,7 @@ def _import_wide_raw_result(
     reset: bool,
     measurement_limit: int,
     include_model_features: bool,
+    collect_fail_events: bool,
 ) -> dict[str, Any]:
     if len(table) < 6:
         raise CsvImportError("RawResult CSV 缺少測項描述列或 Device 資料列")
@@ -160,10 +161,10 @@ def _import_wide_raw_result(
     if reset:
         runtime_state.start_lot(imported_lot)
 
-    # 全部欄位（約 3000 個測項）都要檢查有沒有超出上下限，才能列出「Fail 異常事件」；
-    # 只有前 measurement_limit 個測項會存成完整量測值，其餘只保留超標的事件。
+    # 完整匯入時才掃描約 3000 個測項建立 Fail Event。啟動 mock 只需要
+    # Wafer Browser / map 的量測資料，跳過這個昂貴步驟避免 API 啟動逾時。
     column_meta = {}
-    for column_index in candidate_columns:
+    for column_index in candidate_columns if collect_fail_events else []:
         low, high = normalise_limits(
             _as_float(low_limits[column_index] if column_index < len(low_limits) else ""),
             _as_float(high_limits[column_index] if column_index < len(high_limits) else ""),
@@ -252,6 +253,7 @@ def import_csv(
     reset: bool = True,
     measurement_limit: int = 24,
     include_model_features: bool = False,
+    collect_fail_events: bool = True,
 ) -> dict[str, Any]:
     """Convert a CSV log into the same events used by the OneAPI callback path."""
 
@@ -269,6 +271,7 @@ def import_csv(
             reset=reset,
             measurement_limit=max(1, measurement_limit),
             include_model_features=include_model_features,
+            collect_fail_events=collect_fail_events,
         )
 
     header, *raw_rows = table

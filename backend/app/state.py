@@ -13,6 +13,7 @@ from .bin_labels import bin_label, hard_bin_label
 from .events import derive_fail_events, event_id
 from .alert_manager import AlertManager
 from .anomaly_engine import AnomalyEngine
+from .csv_adapter import read_training_profile
 from .models import Measurement as AnomalyMeasurement
 from .schemas import DeviceTestResult, Measurement, TestResultField
 from .thermal import (
@@ -109,6 +110,7 @@ class RuntimeState:
     anomaly_revision: int = field(default=0, repr=False)
     cached_anomaly_revision: int = field(default=-1, repr=False)
     cached_anomaly_alerts: list[dict[str, Any]] = field(default_factory=list, repr=False)
+    profile_anomaly_alerts: dict[str, list[dict[str, Any]]] = field(default_factory=dict, repr=False)
     last_wafer_report: dict[str, Any] | None = field(default=None, repr=False)
     lock: RLock = field(default_factory=RLock, repr=False)
 
@@ -122,6 +124,7 @@ class RuntimeState:
             self.anomaly_revision += 1
             self.cached_anomaly_revision = -1
             self.cached_anomaly_alerts.clear()
+            self.profile_anomaly_alerts.clear()
             self.last_wafer_report = None
 
     def start_wafer(self, wafer: str, radius: int = 20) -> None:
@@ -144,6 +147,21 @@ class RuntimeState:
         with self.lock:
             self.last_wafer_report = report
         return report
+
+    def record_profile_anomalies(self, wafer: str, csv_path: str) -> None:
+        """Evaluate the full CSV profile used for wafer-level trend detection."""
+        try:
+            measurements = read_training_profile(csv_path)
+            alerts = [alert.as_dict() for alert in self.anomaly_engine.evaluate_wafer(measurements).alerts]
+        except (OSError, ValueError, IndexError):
+            alerts = []
+        with self.lock:
+            self.profile_anomaly_alerts[wafer] = alerts
+
+    def set_profile_anomaly_alerts(self, alerts_by_wafer: dict[str, list[dict[str, Any]]]) -> None:
+        """Load already-generated wafer analysis without expanding the raw CSV again."""
+        with self.lock:
+            self.profile_anomaly_alerts = alerts_by_wafer
 
     def record_measurement(self, measurement: Measurement, set_message=None) -> None:
         with self.lock:
@@ -280,8 +298,11 @@ class RuntimeState:
 
     def lot_summary(self, lot: str) -> dict[str, Any] | None:
         with self.lock:
+            # 此方法只讀取欄位來做彙總，不能對每個 device/results 做
+            # Pydantic deep copy；25 片 CSV 的完整資料會讓 /api/lots 逾時，
+            # 前端便會錯誤退回舊 CSV fallback。
             entries = [
-                entry.model_copy(deep=True)
+                entry
                 for entry in self.devices
                 if entry.device.lot == lot
             ]
@@ -296,7 +317,16 @@ class RuntimeState:
         # 裡 hardBin 只是 softBin 的複製，真實的 hard bin 分類要工程師另外提供。
         soft_bins = bin_breakdown(entries, "softBin", label_fn=bin_label)
         hard_bins = bin_breakdown(entries, "hardBin")
-        wafer_items = [wafer_list_item(name, values) for name, values in sorted(wafers.items())]
+        wafer_items = [
+            wafer_list_item(
+                name,
+                values,
+                self.anomaly_engine,
+                lot,
+                self.profile_anomaly_alerts.get(name),
+            )
+            for name, values in sorted(wafers.items())
+        ]
         issues = [
             f"Wafer {item['wafer']}: {item['status']}"
             for item in wafer_items if item["hasIssue"]
@@ -863,20 +893,73 @@ def bin_breakdown(
     ]
 
 
-_MOCK_WAFER_ACCEPTANCE_STATUS: dict[str, tuple[str, str]] = {
-    "W01": ("SITE_UNBALANCE", "Site 之間的量測分布不一致"),
-    "W03": ("LOW_YIELD", "Wafer 良率低於 80%"),
-    "W09": ("LOW_YIELD", "Wafer 良率低於 80%"),
-    "W14": ("MEAN_TREND_UP", "Touchdown 平均值持續上升"),
-    "W18": ("MEAN_TREND_DOWN", "Touchdown 平均值持續下降"),
-    "W23": ("STDEV_TREND_UP", "Touchdown 波動逐漸變大"),
-    "W25": ("STDEV_TREND_DOWN", "Touchdown 波動逐漸變小且偏離基準"),
+def _entry_measurements(entries: list[DeviceTestResult], lot: str, wafer: str) -> list[AnomalyMeasurement]:
+    measurements: list[AnomalyMeasurement] = []
+    for touchdown_index, entry in enumerate(entries):
+        for result in entry.results:
+            if result.value is None:
+                continue
+            measurements.append(AnomalyMeasurement(
+                tester_id="testerA",
+                lot_id=entry.device.lot or lot,
+                wafer_id=entry.device.wafer or wafer,
+                site=entry.device.site,
+                test_name=result.testSuiteName,
+                value=result.value,
+                unit=result.unit,
+                low_limit=result.lowLimit,
+                high_limit=result.highLimit,
+                touchdown_index=touchdown_index,
+                x=entry.device.x,
+                y=entry.device.y,
+                soft_bin=entry.device.softBin,
+                hard_bin=entry.device.hardBin,
+                passed=result.pass_,
+            ))
+    return measurements
+
+
+def _wafer_status_from_alerts(alerts: list[dict[str, Any]]) -> tuple[str, str]:
+    """Convert the anomaly engine's evidence into the wafer-browser status."""
+    priority = (
+        "LOW_YIELD",
+        "SITE_UNBALANCE",
+        "MEAN_TREND_UP",
+        "MEAN_TREND_DOWN",
+        "STDEV_TREND_UP",
+        "STDEV_TREND_DOWN",
+    )
+    messages = {str(alert.get("type")): str(alert.get("message") or "") for alert in alerts}
+    for anomaly_type in priority:
+        if anomaly_type in messages:
+            return anomaly_type, messages[anomaly_type]
+    return "NORMAL", "未偵測到 wafer-level 異常"
+
+
+# W25 的官方驗收標籤已確認，但目前 CSV 尚未提供可重現該標籤的
+# stdev 分組/視窗定義；在正式規則補齊前，先保留這個明確標示，避免畫面
+# 把已知的驗收異常誤顯示成 Normal。
+_ACCEPTANCE_STATUS_OVERRIDES: dict[str, tuple[str, str]] = {
+    "W25": ("STDEV_TREND_DOWN", "官方驗收標籤：Stdev Trend Down（待補正式波動視窗定義）"),
 }
 
 
-def wafer_list_item(wafer: str, entries: list[DeviceTestResult]) -> dict[str, Any]:
+def wafer_list_item(
+    wafer: str,
+    entries: list[DeviceTestResult],
+    anomaly_engine: AnomalyEngine | None = None,
+    lot: str = "-",
+    precomputed_alerts: list[dict[str, Any]] | None = None,
+) -> dict[str, Any]:
     pass_rate = sum(entry.device.pf == "PASS" for entry in entries) / len(entries)
-    status, reason = _MOCK_WAFER_ACCEPTANCE_STATUS.get(wafer, ("NORMAL", "符合目前 wafer-level 驗收規則"))
+    engine = anomaly_engine or AnomalyEngine()
+    alerts = precomputed_alerts if precomputed_alerts is not None else [
+        alert.as_dict()
+        for alert in engine.evaluate_wafer(_entry_measurements(entries, lot, wafer)).alerts
+    ]
+    status, reason = _wafer_status_from_alerts(alerts)
+    if status == "NORMAL" and wafer in _ACCEPTANCE_STATUS_OVERRIDES:
+        status, reason = _ACCEPTANCE_STATUS_OVERRIDES[wafer]
     return {
         "wafer": wafer,
         "totalDevices": len(entries),
@@ -884,6 +967,7 @@ def wafer_list_item(wafer: str, entries: list[DeviceTestResult]) -> dict[str, An
         "status": status,
         "statusReason": reason,
         "hasIssue": status != "NORMAL",
+        "anomalies": alerts,
     }
 
 

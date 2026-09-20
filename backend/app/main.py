@@ -22,6 +22,7 @@ from .thermal import production_model_info
 
 BACKEND_DIR = Path(__file__).resolve().parents[1]
 VALIDATION_REPORT_PATH = BACKEND_DIR / "reports" / "thermal_validation.json"
+WAFER_STATUS_CACHE_PATH = BACKEND_DIR / "reports" / "wafer_anomaly_status.json"
 VALIDATION_SCRIPT_PATH = BACKEND_DIR / "scripts" / "validate_thermal_model.py"
 MODEL_DIR = BACKEND_DIR / "training" / "models"
 _validation_job_lock = threading.Lock()
@@ -62,6 +63,28 @@ def _start_validation_report_job() -> None:
     threading.Thread(target=run, name="thermal-validation-report", daemon=True).start()
 
 
+def _load_wafer_status_cache() -> None:
+    """Load the offline wafer-rule result without re-expanding 25 wide CSV files at startup."""
+    try:
+        status_rows = json.loads(WAFER_STATUS_CACHE_PATH.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return
+    if not isinstance(status_rows, dict):
+        return
+    alerts_by_wafer: dict[str, list[dict]] = {}
+    for wafer, row in status_rows.items():
+        if not isinstance(row, dict):
+            continue
+        status = row.get("status")
+        reason = row.get("reason")
+        alerts_by_wafer[str(wafer)] = [] if status == "NORMAL" else [{
+            "type": status,
+            "message": reason or str(status),
+            "source": "offline_wafer_analysis",
+        }]
+    runtime_state.set_profile_anomaly_alerts(alerts_by_wafer)
+
+
 @asynccontextmanager
 async def lifespan(_: FastAPI):
     # 本機 demo 預設載入 training/Data 的真實 RawResult CSV，讓 Dashboard、
@@ -92,10 +115,12 @@ async def lifespan(_: FastAPI):
                     wafer_override=wafer,
                     reset=index == 0,
                     measurement_limit=24,
+                    collect_fail_events=False,
                 )
             except (CsvImportError, OSError):
                 # CSV mock 只是本機示範資料，單一檔案載入失敗時繼續載入其他 wafer。
                 continue
+    _load_wafer_status_cache()
     _start_validation_report_job()
     yield
 
