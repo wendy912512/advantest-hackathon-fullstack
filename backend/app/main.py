@@ -56,6 +56,7 @@ app = FastAPI(title="Advantest RTDI Web API", version="0.1.0", lifespan=lifespan
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["http://localhost:3000", "http://127.0.0.1:3000"],
+    allow_origin_regex=r"^http://(localhost|127\.0\.0\.1|advantestcell\.local)(:\d+)?$",
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -188,6 +189,10 @@ def ingest_measurement(event: Measurement) -> None:
 
 @app.post("/api/internal/test-end", status_code=204)
 def ingest_test_end(event: DeviceTestResult) -> None:
+    # FT 測試流程不會發出 WAFERSTART，仍需提供可查詢的資料分組給網頁。
+    # 只在 OneAPI 沒有送出 wafer 時標記為 FT；CP 的真實 Wafer ID 不會改寫。
+    if not event.device.wafer or event.device.wafer == "-":
+        event.device.wafer = "FT"
     runtime_state.record_test_end(event)
 
 
