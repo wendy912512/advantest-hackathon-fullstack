@@ -20,8 +20,8 @@ export async function fetchWaferThermal(lot: string, wafer: string): Promise<Waf
 // CSV fallback 的預測資料誤當成正式模型驗證結果。
 export async function fetchThermalValidationReport(): Promise<ThermalValidationReport | ThermalValidationPending | undefined> {
   try {
-    const { data } = await apiClient.get<ThermalValidationReport>("/thermal/validation-report");
-    return data.status === "generating" ? data as ThermalValidationPending : data;
+    const { data } = await apiClient.get<ThermalValidationReport | ThermalValidationPending>("/thermal/validation-report");
+    return data;
   } catch {
     return undefined;
   }
