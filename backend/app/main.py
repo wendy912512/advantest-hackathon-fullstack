@@ -11,7 +11,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field
 
 from .csv_import import CsvImportError, import_csv
-from .schemas import DeviceTestResult, LotStart, Measurement, WaferStart
+from .schemas import DeviceTestResult, LotStart, Measurement, ThermalPredictRequest, WaferStart
 from .state import runtime_state
 
 
@@ -56,6 +56,7 @@ app = FastAPI(title="Advantest RTDI Web API", version="0.1.0", lifespan=lifespan
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["http://localhost:3000", "http://127.0.0.1:3000"],
+    allow_origin_regex=r"^http://(localhost|127\.0\.0\.1|advantestcell\.local)(:\d+)?$",
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -140,6 +141,15 @@ def temperature_prediction() -> dict:
     return runtime_state.temperature_snapshot()
 
 
+@app.post("/api/temperature/predict")
+def predict_next_temperature(event: ThermalPredictRequest) -> dict:
+    """Tester/container contract: return the next sensor prediction now."""
+    data = runtime_state.predict_next_sensor(event)
+    if data is None:
+        raise HTTPException(status_code=422, detail="No training data or no next sensor")
+    return data
+
+
 @app.get("/api/thermal/wafers/{lot}/{wafer}")
 def thermal_wafer(lot: str, wafer: str) -> dict:
     data = runtime_state.thermal_wafer(lot, wafer)
@@ -179,6 +189,10 @@ def ingest_measurement(event: Measurement) -> None:
 
 @app.post("/api/internal/test-end", status_code=204)
 def ingest_test_end(event: DeviceTestResult) -> None:
+    # FT 測試流程不會發出 WAFERSTART，仍需提供可查詢的資料分組給網頁。
+    # 只在 OneAPI 沒有送出 wafer 時標記為 FT；CP 的真實 Wafer ID 不會改寫。
+    if not event.device.wafer or event.device.wafer == "-":
+        event.device.wafer = "FT"
     runtime_state.record_test_end(event)
 
 

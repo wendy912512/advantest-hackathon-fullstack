@@ -9,9 +9,9 @@ import { IconAlertTriangle, IconCircleX } from "@tabler/icons-react";
 type NotifFilter = "all" | "critical" | "warning";
 
 const SOURCE_LABELS: Record<AlertSource, string> = {
-  trend: "趨勢",
-  thermal: "溫度",
-  failure: "失敗原因",
+  trend: "趨勢異常",
+  thermal: "溫度預測",
+  failure: "測試失敗",
 };
 
 function AlertCard({ alert, isLatest, flash }: { alert: UnifiedAlert; isLatest: boolean; flash: boolean }) {
@@ -98,15 +98,12 @@ function AlertCard({ alert, isLatest, flash }: { alert: UnifiedAlert; isLatest: 
           </div>
 
           <div style={{ background: C.surfaceVariant, borderRadius: 8, padding: "10px 12px", marginBottom: 10 }}>
-            <div style={{ fontSize: 11, fontWeight: 700, color: C.muted, letterSpacing: "0.06em", marginBottom: 5 }}>異常原因</div>
+            <div style={{ fontSize: 11, fontWeight: 700, color: C.muted, letterSpacing: "0.06em", marginBottom: 5 }}>判定原因</div>
             <div style={{ fontSize: 13, color: C.sub, lineHeight: 1.6 }}>{alert.message}</div>
           </div>
         </>
       )}
 
-      <div style={{ display: "flex", justifyContent: "flex-end" }}>
-        <span style={{ fontFamily: MONO, fontSize: 12, color: C.dim }}>{new Date(alert.detectedAt).toLocaleTimeString("en-GB")}</span>
-      </div>
     </div>
   );
 }

@@ -7,13 +7,22 @@ from math import sqrt
 from threading import RLock
 from typing import Any, Callable
 
+import numpy as np
+
 from .bin_labels import bin_label, hard_bin_label
 from .events import derive_fail_events, event_id
 from .alert_manager import AlertManager
 from .anomaly_engine import AnomalyEngine
 from .models import Measurement as AnomalyMeasurement
 from .schemas import DeviceTestResult, Measurement, TestResultField
-from .thermal import build_wafer_thermal, sensor_index
+from .thermal import (
+    DEFAULT_UNIT,
+    build_wafer_thermal,
+    classify,
+    fit_cross_wafer_predictor,
+    sensor_index,
+    sensor_label,
+)
 
 
 def now_iso() -> str:
@@ -335,11 +344,18 @@ class RuntimeState:
             value = result.value or 0.0
             reasons = []
             if result.highLimit is not None and value > result.highLimit:
-                reasons.append(f"Value {value:.4f} exceeds high limit {result.highLimit:.4f}")
+                reasons.append(
+                    f"實際值 {value:.3f} 超過上限 {result.highLimit:.3f}，因此判定為測試失敗"
+                )
             if result.lowLimit is not None and value < result.lowLimit:
-                reasons.append(f"Value {value:.4f} is below low limit {result.lowLimit:.4f}")
+                reasons.append(
+                    f"實際值 {value:.3f} 低於下限 {result.lowLimit:.3f}，因此判定為測試失敗"
+                )
             if not reasons:
-                reasons.append(f"Soft bin {entry.device.softBin} ({bin_label(entry.device.softBin)}) reported a failure")
+                reasons.append(
+                    f"測試結果判定為 Fail；Soft Bin {entry.device.softBin}"
+                    f"（{bin_label(entry.device.softBin)}）"
+                )
             explanations.append({
                 "pid": entry.device.pid,
                 "site": entry.device.site,
@@ -462,11 +478,66 @@ class RuntimeState:
             entries = [
                 entry.model_copy(deep=True)
                 for entry in self.devices
-                if entry.device.lot == lot and entry.device.wafer == wafer
+                if entry.device.lot == lot
             ]
             is_live = lot == self.lot and wafer == self.wafer
             completed = self.thermal_completed.get((lot, wafer), 3) if is_live else None
         return build_wafer_thermal(entries, lot, wafer, is_live, completed, now_iso())
+
+    def predict_next_sensor(self, request) -> dict[str, Any] | None:
+        """Predict one new-wafer device using the complete W01-W25 corpus.
+
+        The request contains only results already measured before the next
+        sensor. No result from the incoming wafer is added to the training
+        set, so this is the same contract the tester/container integration
+        will use in production.
+        """
+        with self.lock:
+            training_entries = [
+                entry.model_copy(deep=True)
+                for entry in self.devices
+                if entry.device.lot == request.lot
+            ]
+        if not training_entries:
+            return None
+
+        sensor_fields: dict[int, TestResultField] = {}
+        for entry in training_entries:
+            for field in entry.results:
+                index = sensor_index(field)
+                if index is not None:
+                    sensor_fields.setdefault(index, field)
+        sensor_ids = sorted(sensor_fields)
+        if request.completedSensors >= len(sensor_ids):
+            return None
+        target_sensor = sensor_ids[request.completedSensors]
+        incoming = DeviceTestResult(device=request.device, results=request.results)
+        prediction = fit_cross_wafer_predictor(training_entries, [], target_sensor, target_entry=incoming)
+        predicted = None if not len(prediction) or np.isnan(prediction[0]) else float(prediction[0])
+        target_field = sensor_fields[target_sensor]
+        bounds = [value for value in (target_field.highLimit, target_field.lowLimit) if value is not None]
+        upper = max(bounds) if bounds else None
+        status = classify(predicted, upper)
+        display_name = sensor_label(target_field)
+        return {
+            "lot": request.lot,
+            "wafer": request.wafer,
+            "device": request.device.pid,
+            "site": request.device.site,
+            "sensor": target_sensor,
+            "testName": display_name,
+            "predicted": predicted,
+            "upperLimit": upper,
+            "unit": target_field.unit or DEFAULT_UNIT,
+            "status": status,
+            "trainingWafers": sorted({entry.device.wafer for entry in training_entries}),
+            "message": (
+                f"{display_name} 預測值 {predicted:.2f}{target_field.unit or DEFAULT_UNIT}，"
+                f"規格上限 {upper:g}{target_field.unit or DEFAULT_UNIT}，判定為 {status}"
+                if predicted is not None and upper is not None
+                else "目前資料不足，無法預測下一個 sensor"
+            ),
+        }
 
     def temperature_snapshot(self) -> dict[str, Any]:
         """A neutral transport contract until the ML team supplies predictions.

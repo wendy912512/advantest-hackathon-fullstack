@@ -77,7 +77,7 @@ export default function TemperaturePage() {
     <div>
       <div style={{ marginBottom: 20 }}>
         <div style={{ color: C.blue, fontFamily: MONO, fontSize: 11, fontWeight: 700, letterSpacing: "0.1em", marginBottom: 7 }}>THERMAL PREDICTION</div>
-        <h1 style={{ color: C.text, fontSize: 25, fontWeight: 650, letterSpacing: "-0.02em", margin: 0 }}>Wafer 溫度預測</h1>
+        <h1 style={{ color: C.text, fontSize: 25, fontWeight: 650, letterSpacing: "-0.02em", margin: 0 }}>Thermal 預測</h1>
         <p style={{ color: C.muted, fontSize: 13, margin: "7px 0 0" }}>比較各個 sensor 的預測值與實測值，提前標示可能超過溫度上限的 Device。</p>
       </div>
       <LotWaferFilter

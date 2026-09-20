@@ -1,17 +1,34 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import type { DeviceSensorPrediction, DeviceThermal, ThermalStatus, WaferThermal } from "@/lib/api";
+import type { DeviceSensorPrediction, DeviceThermal, WaferThermal } from "@/lib/api";
 import { C, MONO } from "@/lib/theme";
 import { SectionHeader } from "@/components/common/SectionHeader";
-import { formatPid, STATUS_COLORS, STATUS_LABELS, VERDICT_LABELS } from "@/lib/thermal";
-import { IconAlertTriangle, IconCircleCheck, IconCircleX, IconClock } from "@tabler/icons-react";
+import { formatPid, VERDICT_LABELS } from "@/lib/thermal";
 
 
 const STAGE_LABELS = { verified: "已實測", next: "預測中", future: "未到" } as const;
 
 function predictionOf(device: DeviceThermal, sensor: number): DeviceSensorPrediction | undefined {
   return device.sensors.find((s) => s.sensor === sensor);
+}
+
+// 顏色只標示「預測誤差」的大小，不代表模型輸出的 Normal/Warning/Critical。
+// 0.05 / 0.10 先作為畫面輔助門檻，正式上線前可依工程規格調整。
+function errorColor(error: number | null): string {
+  if (error === null) return C.muted;
+  const magnitude = Math.abs(error);
+  if (magnitude > 0.1) return C.red;
+  if (magnitude > 0.05) return C.yellow;
+  return C.sub;
+}
+
+function errorBackground(error: number | null): string {
+  if (error === null) return C.surfaceVariant;
+  const magnitude = Math.abs(error);
+  if (magnitude > 0.1) return "#FFF0F0";
+  if (magnitude > 0.05) return "#FFF8E6";
+  return "#F0F8F1";
 }
 
 function SummaryStat({ label, value, color }: { label: string; value: string; color?: string }) {
@@ -44,10 +61,8 @@ export function WaferThermalView({ data }: { data: WaferThermal }) {
   const sensor = data.sensors.find((s) => s.index === sensorIndex) ?? data.sensors[0];
   const preds = data.devices.map((d) => ({ device: d, p: predictionOf(d, sensor.index) }));
 
-  const count = (status: string) => preds.filter((x) => x.p?.status === status).length;
   const predicted = preds.filter((x) => x.p && x.p.predicted !== null).length;
   const awaiting = preds.filter((x) => x.p && x.p.predicted !== null && x.p.actual === null).length;
-  const verdictCount = (v: string) => preds.filter((x) => x.p?.verdict === v).length;
   const errors = preds.filter((x) => x.p?.error != null).map((x) => Math.abs(x.p!.error as number));
   const mae = errors.length ? errors.reduce((a, b) => a + b, 0) / errors.length : null;
 
@@ -95,74 +110,58 @@ export function WaferThermalView({ data }: { data: WaferThermal }) {
         <SectionHeader id="thermal-summary" label={`Wafer ${data.wafer} 預測摘要 — ${sensor.name}`} />
         <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(130px, 1fr))", gap: 8 }}>
           <SummaryStat label="預測中的 DEVICE" value={`${predicted} 個`} />
-          <SummaryStat label="預測正常" value={`${count("normal")} 個`} color={C.green} />
-          <SummaryStat label="預測 WARNING" value={`${count("warning")} 個`} color={C.yellow} />
-          <SummaryStat label="預測 CRITICAL" value={`${count("critical")} 個`} color={C.red} />
+          <SummaryStat label="已收到正式值" value={`${predicted - awaiting} 個`} />
           <SummaryStat label="待實際驗證" value={`${awaiting} 個`} color={C.muted} />
         </div>
         {sensor.stage === "verified" && (
           <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(150px, 1fr))", gap: 8, marginTop: 8 }}>
-            <SummaryStat label="預測成功" value={`${verdictCount("hit")} 個`} color={C.green} />
-            <SummaryStat label="誤報" value={`${verdictCount("false_alarm")} 個`} color={C.yellow} />
-            <SummaryStat label="漏報" value={`${verdictCount("miss")} 個`} color={C.red} />
             <SummaryStat label="平均絕對誤差" value={mae === null ? "—" : `${mae.toFixed(2)}${sensor.unit}`} />
           </div>
         )}
         <div style={{ fontSize: 11, color: C.muted, marginTop: 6 }}>
-          規格上限 {sensor.upperLimit ?? "—"}
-          {sensor.unit}，預測 ≥ {sensor.warnThreshold?.toFixed(2) ?? "—"}
-          {sensor.unit} 為 Warning、≥ 上限為 Critical（Warning 區間為暫定值，需與工程師確認）。
-          {sensor.stage === "next" && " 這個 sensor 正在預測中、尚未實測，所以只寫「預測會超標」，不是「已超標」。"}
+          預測值會在 sensor 實測完成後，與正式值比較並呈現差距（正式值 − 預測值）。
+          {sensor.stage === "next" && " 這個 sensor 尚未實測，目前只顯示預測值，差距會在正式值回來後計算。"}
         </div>
       </div>
 
       <div style={{ marginBottom: 20 }}>
-        <SectionHeader id="thermal-matrix" label="Device 預測狀態矩陣" count={data.devices.length} />
+        <SectionHeader id="thermal-matrix" label="Device 預測與誤差矩陣" count={data.devices.length} />
         <div style={{ display: "flex", gap: 8, flexWrap: "wrap", alignItems: "center", marginBottom: 10 }}>
-          {(["normal", "warning", "critical", "pending"] as const).map((st) => (
-            <span key={st} className="md-chip">
-              <span className="md-tile-icon md-tile-icon-sm" style={{ color: STATUS_COLORS[st].fg }}>
-                <StatusIcon status={st} />
-              </span>
-              {st === "normal" ? "預測溫度正常" : st === "warning" ? "預測接近上限" : st === "critical" ? "預測會超過上限" : "尚未收到足夠資料"}
-            </span>
-          ))}
+          <span className="md-chip">每格顯示預測值與預測誤差</span>
+          <span style={{ display: "inline-flex", alignItems: "center", gap: 6, fontSize: 12, color: C.muted }}>
+            <span style={{ color: C.sub }}>灰 ≤0.05</span>
+            <span style={{ color: C.yellow }}>橘 0.05–0.10</span>
+            <span style={{ color: C.red }}>紅 &gt;0.10</span>
+          </span>
           <span style={{ display: "inline-flex", alignItems: "center", gap: 6, fontSize: 12, color: C.muted }}>
             <span style={{ width: 14, height: 14, borderRadius: 4, background: C.surfaceVariant, flexShrink: 0 }} />
-            灰底 = 已預測、待實測驗證
+            灰底 = 已預測、正式值尚未回來
           </span>
         </div>
         <div className="md-matrix-wrap" onMouseLeave={() => setHover(null)}>
         <div className="md-matrix">
           {preds.map(({ device, p }) => {
-            const st = p?.status ?? "pending";
-            const colors = STATUS_COLORS[st];
-            // 已有預測、但實測還沒回來（待實際驗證）→ 灰底；預測狀態改用邊框與符號的
-            // 顏色表示，實測回來後才換成該狀態的底色。
-            const awaitingActual = p != null && p.predicted !== null && p.actual === null;
             return (
               <button
                 key={device.pid}
                 type="button"
                 className="md-tile"
-                aria-label={`${formatPid(device.pid)}，${STATUS_LABELS[st]}`}
+                aria-label={`${formatPid(device.pid)}，預測值 ${p?.predicted?.toFixed(2) ?? "尚無資料"}，差距 ${p?.error?.toFixed(2) ?? "待測"}`}
                 onMouseEnter={(e) => showHover(e.currentTarget, device.pid)}
                 onFocus={(e) => showHover(e.currentTarget, device.pid)}
                 onBlur={() => setHover(null)}
                 style={{
-                  // MD3 tonal tile：無粗邊框，用容器色表達狀態；待驗證（已預測、實測未回）
-                  // 用灰色容器，預測狀態由左上角的圖示表達。
-                  background: awaitingActual ? C.surfaceVariant : colors.bg,
+                  background: errorBackground(p?.error ?? null),
                   color: C.text,
                 }}
               >
-                <span className="md-tile-icon" style={{ color: colors.fg }}>
-                  <StatusIcon status={st} />
-                </span>
                 <span className="md-tile-text">
                   <span className="md-tile-label">{formatPid(device.pid)}</span>
                   <span className="md-tile-value" style={{ color: C.sub }}>
-                    {p?.predicted != null ? p.predicted.toFixed(2) : "—"}
+                    預測 {p?.predicted != null ? p.predicted.toFixed(2) : "—"}
+                  </span>
+                  <span className="md-tile-value" style={{ color: errorColor(p?.error ?? null) }}>
+                    差距 {p?.error != null ? `${p.error > 0 ? "+" : ""}${p.error.toFixed(2)}` : "待測"}
                   </span>
                 </span>
               </button>
@@ -212,14 +211,12 @@ function HoverCard({
   cellHeight: number;
   above: boolean;
 }) {
-  const colors = STATUS_COLORS[p.status];
   const rows: [string, string, string?][] = [
-    ["預測", p.predicted === null ? "—" : `${p.predicted.toFixed(2)}${unit}`],
-    ["上限", upper === null ? "—" : `${upper}${unit}`],
-    ["狀態", STATUS_LABELS[p.status], colors.fg],
-    ["實際", p.actual === null ? "待實測" : `${p.actual.toFixed(2)}${unit}`],
-    ["誤差", p.error === null ? "—" : `${p.error > 0 ? "+" : ""}${p.error.toFixed(2)}${unit}`],
-    ["結果", p.verdict ? VERDICT_LABELS[p.verdict] : "待驗證", p.verdict === "hit" ? C.green : p.verdict === "miss" || p.verdict === "false_alarm" ? C.red : undefined],
+    ["預測值", p.predicted === null ? "—" : `${p.predicted.toFixed(2)}${unit}`],
+    ["正式值", p.actual === null ? "待測" : `${p.actual.toFixed(2)}${unit}`],
+    ["差距", p.error === null ? "待測" : `${p.error > 0 ? "+" : ""}${p.error.toFixed(2)}${unit}`, errorColor(p.error)],
+    ["規格上限", upper === null ? "—" : `${upper}${unit}`],
+    ["驗證", p.verdict ? VERDICT_LABELS[p.verdict] : "待正式值"],
   ];
   return (
     <div
@@ -232,7 +229,7 @@ function HoverCard({
         zIndex: 20,
         pointerEvents: "none",
         background: C.card,
-        border: `1px solid ${colors.border}`,
+        border: `1px solid ${C.border}`,
         borderRadius: 12,
         boxShadow: C.shadowMd,
         padding: "12px 14px",
@@ -255,7 +252,3 @@ function HoverCard({
   );
 }
 
-function StatusIcon({ status }: { status: ThermalStatus }) {
-  const Icon = status === "normal" ? IconCircleCheck : status === "warning" ? IconAlertTriangle : status === "critical" ? IconCircleX : IconClock;
-  return <Icon size="100%" stroke={2} aria-hidden="true" />;
-}

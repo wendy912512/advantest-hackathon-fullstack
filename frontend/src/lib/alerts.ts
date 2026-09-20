@@ -139,6 +139,10 @@ export function buildUnifiedAlerts({
   }
 
   for (const failure of failures ?? []) {
+    const rawReason = failure.reasons?.[0] ?? failure.summary;
+    const reason = /reported a failure|exceeds high limit|below low limit|^Soft bin/i.test(rawReason)
+      ? `測試結果判定為 Fail；Soft Bin ${failure.softBin}（${failure.binLabel}）`
+      : rawReason;
     alerts.push({
       id: `failure-${failure.pid}`,
       // 失敗 device 本身已經是確定發生的事實（不是趨勢預警），統一列為 warning，
@@ -149,7 +153,7 @@ export function buildUnifiedAlerts({
       lot,
       wafer,
       testItem: failure.testSuiteName,
-      message: `${failure.pid}（${failure.binLabel}）：${failure.summary}`,
+      message: reason,
       detectedAt: dashboard?.generatedAt ?? new Date().toISOString(),
     });
   }

@@ -12,7 +12,7 @@ import { IconWafer } from "./IconWafer";
 export const NAV_ITEMS = [
   { href: "/", label: "Sites", Icon: IconLayoutDashboard },
   { href: "/wafers", label: "Wafers", Icon: IconWafer },
-  { href: "/temperature", label: "Thermal", Icon: IconTemperature },
+  { href: "/thermal", label: "Thermal", Icon: IconTemperature },
 ] as const;
 
 export function Sidebar() {
@@ -33,7 +33,7 @@ export function Sidebar() {
       }}
     >
       {NAV_ITEMS.map((item) => {
-        const active = pathname === item.href;
+        const active = pathname === item.href || (item.href === "/thermal" && pathname === "/temperature");
         const Icon = item.Icon;
         return (
           <Link key={item.href} href={item.href} style={{ textDecoration: "none", width: "100%" }}>
@@ -72,7 +72,7 @@ export function MobileBottomNav() {
       style={{ background: C.card, borderTop: `1px solid ${C.border}`, boxShadow: "0 -2px 8px rgba(0,0,0,0.08)", height: 64 }}
     >
       {NAV_ITEMS.map((item) => {
-        const active = pathname === item.href;
+        const active = pathname === item.href || (item.href === "/thermal" && pathname === "/temperature");
         const Icon = item.Icon;
         return (
           <Link key={item.href} href={item.href} className="flex-1 flex items-center justify-center" style={{ textDecoration: "none" }}>
