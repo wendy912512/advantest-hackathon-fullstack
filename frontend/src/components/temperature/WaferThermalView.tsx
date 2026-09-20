@@ -23,6 +23,14 @@ function errorColor(error: number | null): string {
   return C.sub;
 }
 
+function errorBackground(error: number | null): string {
+  if (error === null) return C.surfaceVariant;
+  const magnitude = Math.abs(error);
+  if (magnitude > 0.1) return "#FFF0F0";
+  if (magnitude > 0.05) return "#FFF8E6";
+  return "#F0F8F1";
+}
+
 function SummaryStat({ label, value, color }: { label: string; value: string; color?: string }) {
   return (
     <div style={{ background: C.card, border: `1px solid ${C.border}`, borderRadius: 12, padding: "8px 14px", boxShadow: C.shadow }}>
@@ -133,7 +141,6 @@ export function WaferThermalView({ data }: { data: WaferThermal }) {
         <div className="md-matrix-wrap" onMouseLeave={() => setHover(null)}>
         <div className="md-matrix">
           {preds.map(({ device, p }) => {
-            const awaitingActual = p != null && p.predicted !== null && p.actual === null;
             return (
               <button
                 key={device.pid}
@@ -144,7 +151,7 @@ export function WaferThermalView({ data }: { data: WaferThermal }) {
                 onFocus={(e) => showHover(e.currentTarget, device.pid)}
                 onBlur={() => setHover(null)}
                 style={{
-                  background: awaitingActual ? C.surfaceVariant : C.card,
+                  background: errorBackground(p?.error ?? null),
                   color: C.text,
                 }}
               >
