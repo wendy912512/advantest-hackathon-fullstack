@@ -12,6 +12,17 @@ const STAGE_LABELS = { verified: "已實測", next: "預測中", future: "未到
 function predictionOf(device: DeviceThermal, sensor: number): DeviceSensorPrediction | undefined {
   return device.sensors.find((s) => s.sensor === sensor);
 }
+
+// 顏色只標示「預測誤差」的大小，不代表模型輸出的 Normal/Warning/Critical。
+// 0.05 / 0.10 先作為畫面輔助門檻，正式上線前可依工程規格調整。
+function errorColor(error: number | null): string {
+  if (error === null) return C.muted;
+  const magnitude = Math.abs(error);
+  if (magnitude > 0.1) return C.red;
+  if (magnitude > 0.05) return C.yellow;
+  return C.sub;
+}
+
 function SummaryStat({ label, value, color }: { label: string; value: string; color?: string }) {
   return (
     <div style={{ background: C.card, border: `1px solid ${C.border}`, borderRadius: 12, padding: "8px 14px", boxShadow: C.shadow }}>
@@ -106,9 +117,14 @@ export function WaferThermalView({ data }: { data: WaferThermal }) {
       </div>
 
       <div style={{ marginBottom: 20 }}>
-        <SectionHeader id="thermal-matrix" label="Device 預測狀態矩陣" count={data.devices.length} />
+        <SectionHeader id="thermal-matrix" label="Device 預測與誤差矩陣" count={data.devices.length} />
         <div style={{ display: "flex", gap: 8, flexWrap: "wrap", alignItems: "center", marginBottom: 10 }}>
           <span className="md-chip">每格顯示預測值與預測誤差</span>
+          <span style={{ display: "inline-flex", alignItems: "center", gap: 6, fontSize: 12, color: C.muted }}>
+            <span style={{ color: C.sub }}>灰 ≤0.05</span>
+            <span style={{ color: C.yellow }}>橘 0.05–0.10</span>
+            <span style={{ color: C.red }}>紅 &gt;0.10</span>
+          </span>
           <span style={{ display: "inline-flex", alignItems: "center", gap: 6, fontSize: 12, color: C.muted }}>
             <span style={{ width: 14, height: 14, borderRadius: 4, background: C.surfaceVariant, flexShrink: 0 }} />
             灰底 = 已預測、正式值尚未回來
@@ -137,7 +153,7 @@ export function WaferThermalView({ data }: { data: WaferThermal }) {
                   <span className="md-tile-value" style={{ color: C.sub }}>
                     預測 {p?.predicted != null ? p.predicted.toFixed(2) : "—"}
                   </span>
-                  <span className="md-tile-value" style={{ color: C.muted }}>
+                  <span className="md-tile-value" style={{ color: errorColor(p?.error ?? null) }}>
                     差距 {p?.error != null ? `${p.error > 0 ? "+" : ""}${p.error.toFixed(2)}` : "待測"}
                   </span>
                 </span>
@@ -191,7 +207,7 @@ function HoverCard({
   const rows: [string, string, string?][] = [
     ["預測值", p.predicted === null ? "—" : `${p.predicted.toFixed(2)}${unit}`],
     ["正式值", p.actual === null ? "待測" : `${p.actual.toFixed(2)}${unit}`],
-    ["差距", p.error === null ? "待測" : `${p.error > 0 ? "+" : ""}${p.error.toFixed(2)}${unit}`],
+    ["差距", p.error === null ? "待測" : `${p.error > 0 ? "+" : ""}${p.error.toFixed(2)}${unit}`, errorColor(p.error)],
     ["規格上限", upper === null ? "—" : `${upper}${unit}`],
     ["驗證", p.verdict ? VERDICT_LABELS[p.verdict] : "待正式值"],
   ];
