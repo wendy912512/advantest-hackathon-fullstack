@@ -4,7 +4,7 @@ import { useEffect, useState } from "react";
 import type { AlertSource, UnifiedAlert } from "@/lib/alerts";
 import { C, MONO } from "@/lib/theme";
 import { formatPid, VERDICT_LABELS } from "@/lib/thermal";
-import { IconAlertTriangle, IconCircleX } from "@tabler/icons-react";
+import { IconAlertTriangle, IconCircleX, IconTemperature } from "@tabler/icons-react";
 
 type NotifFilter = "all" | "critical" | "warning";
 
@@ -15,13 +15,20 @@ const SOURCE_LABELS: Record<AlertSource, string> = {
 };
 
 function AlertCard({ alert, isLatest, flash }: { alert: UnifiedAlert; isLatest: boolean; flash: boolean }) {
-  const isCritical = alert.severity === "critical";
-  const sevColor = isCritical ? C.red : "#E65100";
-  const sevBg = isCritical ? C.redBg : "#FFF3E0";
-  const sevBorder = isCritical ? C.redBorder : "#FFCCAA";
   const t = alert.thermal;
+  const isCritical = alert.severity === "critical";
+  // 溫度卡是「模型預測通知」而非已發生的 Critical/Warning 事故，因此以
+  // 藍色溫度圖示建立資訊層級；上限風險只用右側文字標籤提示。
+  const sevColor = t ? C.blue : isCritical ? C.red : "#E65100";
+  const sevBg = t ? C.blueBg : isCritical ? C.redBg : "#FFF3E0";
+  const sevBorder = t ? "#B8CDF5" : isCritical ? C.redBorder : "#FFCCAA";
   const verified = t?.verdict != null;
-  const sevLabel = t ? (verified ? "預測已驗證" : "預測異常") : isCritical ? "Critical" : "Warning";
+  const sevLabel = t ? (verified ? "預測結果已驗證" : "溫度預測提醒") : isCritical ? "Critical" : "Warning";
+  const isMiss = t?.verdict === "miss";
+  const isOverLimitPrediction = t?.status === "critical";
+  const riskLabel = isMiss ? "實測超出規格（漏報）" : isOverLimitPrediction ? "預測超過上限" : "預測接近上限";
+  const riskColor = isMiss || isOverLimitPrediction ? C.red : "#B45309";
+  const riskBg = isMiss || isOverLimitPrediction ? C.redBg : "#FFF3E0";
 
   return (
     <div
@@ -37,13 +44,19 @@ function AlertCard({ alert, isLatest, flash }: { alert: UnifiedAlert; isLatest: 
     >
       <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 10 }}>
         <div style={{ width: 36, height: 36, borderRadius: "50%", background: sevBg, border: `2px solid ${sevBorder}`, display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
-          {isCritical ? <IconCircleX size={17} stroke={2} color={sevColor} /> : <IconAlertTriangle size={17} stroke={2} color={sevColor} />}
+          {t ? <IconTemperature size={18} stroke={2} color={C.blue} /> : isCritical ? <IconCircleX size={17} stroke={2} color={sevColor} /> : <IconAlertTriangle size={17} stroke={2} color={sevColor} />}
         </div>
         <div style={{ flex: 1, display: "flex", alignItems: "center", justifyContent: "space-between" }}>
           <span style={{ fontSize: 14, fontWeight: 700, color: sevColor }}>{sevLabel}</span>
-          <span style={{ fontSize: 11, fontWeight: 500, color: C.muted, background: C.surfaceVariant, borderRadius: 100, padding: "2px 8px" }}>
-            {SOURCE_LABELS[alert.source]}
-          </span>
+          {t ? (
+            <span style={{ fontSize: 11, fontWeight: 600, color: riskColor, background: riskBg, borderRadius: 100, padding: "2px 8px" }}>
+              {riskLabel}
+            </span>
+          ) : (
+            <span style={{ fontSize: 11, fontWeight: 500, color: C.muted, background: C.surfaceVariant, borderRadius: 100, padding: "2px 8px" }}>
+              {SOURCE_LABELS[alert.source]}
+            </span>
+          )}
         </div>
       </div>
 
@@ -61,9 +74,7 @@ function AlertCard({ alert, isLatest, flash }: { alert: UnifiedAlert; isLatest: 
           </div>
           <div>
             預測溫度：<span style={{ fontFamily: MONO, fontWeight: 600, color: sevColor }}>{t.predicted.toFixed(2)}{t.unit}</span>
-            {t.verdict === null && (
-              <span style={{ color: C.muted }}>{t.status === "critical" ? "（預測會超標，實測尚未完成）" : "（預測接近上限，實測尚未完成）"}</span>
-            )}
+            {t.verdict === null && <span style={{ color: C.muted }}>（尚待實測確認）</span>}
           </div>
           <div>
             規格上限：<span style={{ fontFamily: MONO, fontWeight: 600 }}>{t.upperLimit}{t.unit}</span>
