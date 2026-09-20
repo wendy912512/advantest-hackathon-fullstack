@@ -10,7 +10,8 @@ import { LiveBadge } from "./LiveBadge";
 const PAGE_TITLES: Record<string, string> = {
   "/": "Sites",
   "/wafers": "Wafer Browser",
-  "/temperature": "IC Thermal",
+  "/thermal": "Thermal",
+  "/temperature": "Thermal",
 };
 
 export function Header({
