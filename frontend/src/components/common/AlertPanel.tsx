@@ -104,9 +104,6 @@ function AlertCard({ alert, isLatest, flash }: { alert: UnifiedAlert; isLatest: 
         </>
       )}
 
-      <div style={{ display: "flex", justifyContent: "flex-end" }}>
-        <span style={{ fontFamily: MONO, fontSize: 12, color: C.dim }}>{new Date(alert.detectedAt).toLocaleTimeString("en-GB")}</span>
-      </div>
     </div>
   );
 }
