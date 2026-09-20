@@ -223,6 +223,7 @@ def _production_feature_matrix(
     schema: list[str],
 ) -> np.ndarray:
     """Recreate the uploaded training notebook's feature schema for inference."""
+    schema_set = set(schema)
     raw_by_entry: dict[int, dict[str, float]] = {}
     touchdown_by_entry: dict[int, int] = {}
     for entry in all_entries:
@@ -233,7 +234,12 @@ def _production_feature_matrix(
             key = f"{field.testNumber}_{field.testSuiteName}"
             if field.pinName:
                 key += f"#{field.pinName}"
-            raw[_sanitize_feature_name(key)] = float(field.value)
+            sanitized = _sanitize_feature_name(key)
+            # Production inference only needs the deployed Top-80 schema.
+            # Avoid materialising thousands of unrelated test fields for
+            # every device on every dashboard poll.
+            if sanitized in schema_set or f"log_{sanitized}" in schema_set or "IDDQ" in sanitized:
+                raw[sanitized] = float(field.value)
         raw_by_entry[id(entry)] = raw
         try:
             touchdown_by_entry[id(entry)] = max((int(entry.device.pid) - 1) // 4, 0)
@@ -306,7 +312,12 @@ def fit_cross_wafer_predictor(
         artifact = _production_artifact(target_sensor)
         if artifact is not None:
             model, schema = artifact
-            matrix = _production_feature_matrix(training_entries + target_rows, target_rows, schema)
+            # The production artifact is already fitted.  Rebuilding raw
+            # feature dictionaries for every training wafer here only wastes
+            # time and made the dashboard request time out; inference needs
+            # the current target rows (the 80 devices on the selected wafer)
+            # only.
+            matrix = _production_feature_matrix(target_rows, target_rows, schema)
             predictor = getattr(model, "booster_", model)
             return np.asarray(predictor.predict(matrix, num_threads=1), dtype=float)
         logger.error("Thermal model artifact unavailable for sensor %s in %s", target_sensor, MODEL_DIR)
@@ -447,6 +458,10 @@ def build_wafer_thermal(
                 training_entries,
                 target_entries,
                 idx,
+                # The deployed sensor-specific LightGBM artifacts are also
+                # the interactive dashboard's inference path.  Re-fitting a
+                # six-model LightGBM stack on every historical wafer request
+                # made the UI time out before it could render the matrix.
                 use_production_model=True,
             )
 

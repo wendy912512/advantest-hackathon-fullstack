@@ -47,7 +47,7 @@ export default function TemperaturePage() {
   }, [selectedLot]);
 
   useEffect(() => {
-    if (!selectedLot || !selectedWafer || isLive) return;
+    if (!selectedLot || !selectedWafer) return;
     let cancelled = false;
     const load = () => fetchWaferThermal(selectedLot, selectedWafer).then((data) => {
       if (cancelled) return;
@@ -107,7 +107,11 @@ export default function TemperaturePage() {
 
   if (!dashboard) return null;
 
-  const data = isLive ? liveThermal : loadedKey === `${selectedLot}/${selectedWafer}` ? otherThermal : undefined;
+  const loadedData = loadedKey === `${selectedLot}/${selectedWafer}` ? otherThermal : undefined;
+  // The shared live poll is useful for the notification rail, but the page
+  // must still render the selected wafer matrix if that poll is momentarily
+  // empty. The page-level request is the same FastAPI source of truth.
+  const data = isLive ? liveThermal ?? loadedData : loadedData;
 
   return (
     <div>

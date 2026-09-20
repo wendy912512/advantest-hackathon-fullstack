@@ -120,11 +120,14 @@ async def lifespan(_: FastAPI):
                     measurement_limit=24,
                     collect_fail_events=False,
                     include_model_features=True,
+                    stream_wide=True,
                 )
             except (CsvImportError, OSError):
                 # CSV mock 只是本機示範資料，單一檔案載入失敗時繼續載入其他 wafer。
                 continue
     _load_wafer_status_cache()
+    if mock_enabled and csv_paths:
+        runtime_state.prime_lot_summary("A12345")
     _start_validation_report_job()
     yield
 

@@ -111,6 +111,9 @@ class RuntimeState:
     cached_anomaly_revision: int = field(default=-1, repr=False)
     cached_anomaly_alerts: list[dict[str, Any]] = field(default_factory=list, repr=False)
     profile_anomaly_alerts: dict[str, list[dict[str, Any]]] = field(default_factory=dict, repr=False)
+    cached_lot_summaries: dict[str, dict[str, Any]] = field(default_factory=dict, repr=False)
+    cached_lot_summary_revision: int = field(default=-1, repr=False)
+    cached_thermal: dict[tuple[str, str], dict[str, Any]] = field(default_factory=dict, repr=False)
     last_wafer_report: dict[str, Any] | None = field(default=None, repr=False)
     lock: RLock = field(default_factory=RLock, repr=False)
 
@@ -125,6 +128,9 @@ class RuntimeState:
             self.cached_anomaly_revision = -1
             self.cached_anomaly_alerts.clear()
             self.profile_anomaly_alerts.clear()
+            self.cached_lot_summaries.clear()
+            self.cached_lot_summary_revision = -1
+            self.cached_thermal.clear()
             self.last_wafer_report = None
 
     def start_wafer(self, wafer: str, radius: int = 20) -> None:
@@ -344,6 +350,8 @@ class RuntimeState:
 
     def lot_summary(self, lot: str) -> dict[str, Any] | None:
         with self.lock:
+            if self.cached_lot_summary_revision == self.anomaly_revision and lot in self.cached_lot_summaries:
+                return self.cached_lot_summaries[lot]
             # 此方法只讀取欄位來做彙總，不能對每個 device/results 做
             # Pydantic deep copy；25 片 CSV 的完整資料會讓 /api/lots 逾時，
             # 前端便會錯誤退回舊 CSV fallback。
@@ -377,7 +385,7 @@ class RuntimeState:
             f"Wafer {item['wafer']}: {item['status']}"
             for item in wafer_items if item["hasIssue"]
         ]
-        return {
+        summary = {
             "lot": lot,
             "waferCount": len(wafers),
             "totalDevices": total,
@@ -388,6 +396,14 @@ class RuntimeState:
             "suspectIssues": issues,
             "wafers": wafer_items,
         }
+        with self.lock:
+            self.cached_lot_summaries[lot] = summary
+            self.cached_lot_summary_revision = self.anomaly_revision
+        return summary
+
+    def prime_lot_summary(self, lot: str) -> None:
+        """Build the static CSV summary before the server accepts browser requests."""
+        self.lot_summary(lot)
 
     def trends(self, lot: str | None = None, wafer: str | None = None, site: int | None = None) -> list[dict[str, Any]]:
         with self.lock:
@@ -575,14 +591,24 @@ class RuntimeState:
 
     def thermal_wafer(self, lot: str, wafer: str) -> dict[str, Any] | None:
         with self.lock:
+            is_live = lot == self.lot and wafer == self.wafer
+            if not is_live and (lot, wafer) in self.cached_thermal:
+                return self.cached_thermal[(lot, wafer)]
+            # Thermal rendering is read-only.  Deep-copying all 2,000
+            # imported devices (each with thousands of result fields) on every
+            # poll made the endpoint exceed the frontend timeout before the
+            # 80-device matrix could render.
             entries = [
-                entry.model_copy(deep=True)
+                entry
                 for entry in self.devices
                 if entry.device.lot == lot and entry.device.wafer == wafer
             ]
-            is_live = lot == self.lot and wafer == self.wafer
             completed = self.thermal_completed.get((lot, wafer), 0) if is_live else None
-        return build_wafer_thermal(entries, lot, wafer, is_live, completed, now_iso())
+        result = build_wafer_thermal(entries, lot, wafer, is_live, completed, now_iso())
+        if result is not None and not is_live:
+            with self.lock:
+                self.cached_thermal[(lot, wafer)] = result
+        return result
 
     def predict_next_sensor(self, request) -> dict[str, Any] | None:
         """Predict one new-wafer device using the complete W01-W25 corpus.
