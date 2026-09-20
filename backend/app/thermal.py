@@ -1,4 +1,4 @@
-"""Per-device sensor (thermal) prediction for one wafer.
+"""Cross-wafer sensor (thermal) prediction.
 
 Flow this implements (see docs / Notion "場景二"):
 
@@ -6,21 +6,23 @@ Flow this implements (see docs / Notion "場景二"):
   分別預測 -> 預測超過門檻立即產生通知 -> sensor 實測完成後回填實際值、算誤差、
   判定「預測成功 / 誤報 / 漏報」。
 
-The model here is a BASELINE STAND-IN, not the production model:
+The model is intentionally small and explainable for the hackathon:
 
 * Features for sensor K are only the values recorded BEFORE sensor K in the
   device's column order (earlier IDDQ/parametric columns + earlier sensors), so
   it never sees sensor K itself or anything after it (no data leakage).
-* Ridge regression trained leave-one-device-out on the same wafer. In a real
-  run the model must be trained on the 25 training wafers instead; the same
-  wafer's own sensor-K values are of course NOT available before sensor K runs.
-  Only wafer W01 is in the repo, so this stand-in keeps the demo honest about
-  prediction quality (real RMSE) without pretending to be the final model.
-  The data-analysis teammate's model should replace ``predict_sensor()``.
+* For a displayed historical/live wafer, Ridge regression is trained on the
+  other wafers (leave-one-wafer-out), so the selected wafer's target sensor
+  value never becomes a feature or a label for its own prediction.
+* For a genuinely new wafer, ``predict_next_sensor`` trains on all available
+  W01-W25 rows and accepts only the prefix results already returned by the
+  tester before the next sensor starts.
+* The model output is numeric. Warning/Critical are a separate policy layer.
 """
 from __future__ import annotations
 
 import re
+from collections.abc import Iterable
 from typing import Any
 
 import numpy as np
@@ -96,6 +98,89 @@ def predict_sensor(features: np.ndarray, target: np.ndarray) -> np.ndarray:
     return predictions
 
 
+def _field_key(field: TestResultField) -> tuple[int, str, str]:
+    return (field.testNumber, field.testSuiteName, field.pinName or "")
+
+
+def _sensor_fields(entry: DeviceTestResult) -> dict[int, tuple[int, TestResultField]]:
+    return {
+        index: (position, field)
+        for position, field in enumerate(entry.results)
+        if (index := sensor_index(field)) is not None and field.value is not None
+    }
+
+
+def _feature_keys(entries: Iterable[DeviceTestResult], target_sensor: int) -> list[tuple[int, str, str]]:
+    """Stable prefix columns for a sensor, based on the CSV test order."""
+    for entry in entries:
+        sensor = _sensor_fields(entry).get(target_sensor)
+        if sensor:
+            position, _ = sensor
+            return [_field_key(field) for field in entry.results[:position]]
+    return []
+
+
+def _feature_matrix(
+    entries: list[DeviceTestResult],
+    keys: list[tuple[int, str, str]],
+) -> np.ndarray:
+    rows: list[list[float]] = []
+    for entry in entries:
+        values = {_field_key(field): field.value for field in entry.results if field.value is not None}
+        rows.append([np.nan if values.get(key) is None else float(values[key]) for key in keys])
+    if not rows:
+        return np.empty((0, len(keys)), dtype=float)
+    return np.asarray(rows, dtype=float)
+
+
+def fit_cross_wafer_predictor(
+    training_entries: list[DeviceTestResult],
+    target_entries: list[DeviceTestResult],
+    target_sensor: int,
+    *,
+    target_entry: DeviceTestResult | None = None,
+) -> np.ndarray:
+    """Train on complete wafers and predict the target wafer/device rows.
+
+    Missing prefix values are imputed from the training columns. This keeps the
+    API usable while a tester is still streaming measurements, when a few
+    optional parametric items may not have arrived for every device.
+    """
+    keys = _feature_keys(target_entries or ([target_entry] if target_entry else []), target_sensor)
+    if not keys:
+        keys = _feature_keys(training_entries, target_sensor)
+    if not keys:
+        return np.full(len(target_entries) if target_entries else 1, np.nan)
+
+    train_x = _feature_matrix(training_entries, keys)
+    target_x = _feature_matrix(target_entries, keys) if target_entries else _feature_matrix([target_entry], keys)  # type: ignore[list-item]
+    labels: list[float] = []
+    label_rows: list[int] = []
+    for row_index, entry in enumerate(training_entries):
+        field = _sensor_fields(entry).get(target_sensor)
+        if field and field[1].value is not None:
+            label_rows.append(row_index)
+            labels.append(float(field[1].value))
+    if not label_rows or train_x.shape[1] == 0:
+        return np.full(len(target_entries) if target_entries else 1, np.nan)
+
+    train_x = train_x[label_rows]
+    y = np.asarray(labels, dtype=float)
+    usable_columns = ~np.isnan(train_x).all(axis=0)
+    if not usable_columns.any() or len(y) < MIN_TRAIN_DEVICES:
+        return np.full(len(target_entries) if target_entries else 1, np.nan)
+    train_x = train_x[:, usable_columns]
+    target_x = target_x[:, usable_columns]
+    column_means = np.nanmean(train_x, axis=0)
+    train_x = np.where(np.isnan(train_x), column_means, train_x)
+    target_x = np.where(np.isnan(target_x), column_means, target_x)
+    mu = train_x.mean(axis=0)
+    sd = train_x.std(axis=0) + 1e-9
+    z = (train_x - mu) / sd
+    weights = np.linalg.solve(z.T @ z + RIDGE_LAMBDA * np.eye(z.shape[1]), z.T @ (y - y.mean()))
+    return y.mean() + ((target_x - mu) / sd) @ weights
+
+
 def build_wafer_thermal(
     entries: list[DeviceTestResult],
     lot: str,
@@ -111,12 +196,13 @@ def build_wafer_thermal(
     ones are not predicted yet). ``None`` means everything is finished
     (historical wafer: predictions AND official results).
     """
-    if not entries:
+    target_entries = [entry for entry in entries if entry.device.wafer == wafer]
+    if not target_entries:
         return None
 
     per_device: list[dict[int, tuple[int, TestResultField]]] = []
     all_sensors: dict[int, TestResultField] = {}
-    for entry in entries:
+    for entry in target_entries:
         found: dict[int, tuple[int, TestResultField]] = {}
         for position, field in enumerate(entry.results):
             idx = sensor_index(field)
@@ -152,7 +238,7 @@ def build_wafer_thermal(
             "stage": stage,
         })
 
-    n = len(entries)
+    n = len(target_entries)
     device_rows: list[dict[str, Any]] = [
         {
             "pid": entry.device.pid,
@@ -161,7 +247,7 @@ def build_wafer_thermal(
             "y": entry.device.y,
             "sensors": [],
         }
-        for entry in entries
+        for entry in target_entries
     ]
 
     for stage_position, idx in enumerate(sensor_ids):
@@ -172,14 +258,8 @@ def build_wafer_thermal(
         predicted = np.full(n, np.nan)
         if stage_state != "future":
             # Only values recorded before sensor K in each device's column order.
-            prefix_len = min((per_device[i][idx][0] for i in range(n) if idx in per_device[i]), default=0)
-            rows = []
-            for i in range(n):
-                values = [f.value for f in entries[i].results[:prefix_len]]
-                rows.append([np.nan if v is None else v for v in values])
-            features = np.array(rows, dtype=float).reshape(n, prefix_len)
-            usable = ~np.isnan(features).any(axis=0)
-            predicted = predict_sensor(features[:, usable], actual)
+            training_entries = [entry for entry in entries if entry.device.wafer != wafer]
+            predicted = fit_cross_wafer_predictor(training_entries, target_entries, idx)
 
         for i in range(n):
             p = None if np.isnan(predicted[i]) else float(predicted[i])

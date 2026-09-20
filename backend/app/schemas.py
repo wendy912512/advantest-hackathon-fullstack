@@ -75,3 +75,13 @@ class LotStart(BaseModel):
 class WaferStart(BaseModel):
     wafer: str
     radius: int = Field(default=20, gt=0)
+
+
+class ThermalPredictRequest(BaseModel):
+    """Prefix results sent by the tester before the next sensor starts."""
+
+    lot: str
+    wafer: str
+    device: DeviceInfo
+    results: list[TestResultField] = Field(default_factory=list)
+    completedSensors: int = Field(default=0, ge=0, le=6)

@@ -11,7 +11,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field
 
 from .csv_import import CsvImportError, import_csv
-from .schemas import DeviceTestResult, LotStart, Measurement, WaferStart
+from .schemas import DeviceTestResult, LotStart, Measurement, ThermalPredictRequest, WaferStart
 from .state import runtime_state
 
 
@@ -138,6 +138,15 @@ def failure_explanations(limit: int = 8) -> list[dict]:
 @app.get("/api/temperature/predict")
 def temperature_prediction() -> dict:
     return runtime_state.temperature_snapshot()
+
+
+@app.post("/api/temperature/predict")
+def predict_next_temperature(event: ThermalPredictRequest) -> dict:
+    """Tester/container contract: return the next sensor prediction now."""
+    data = runtime_state.predict_next_sensor(event)
+    if data is None:
+        raise HTTPException(status_code=422, detail="No training data or no next sensor")
+    return data
 
 
 @app.get("/api/thermal/wafers/{lot}/{wafer}")
