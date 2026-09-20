@@ -43,13 +43,8 @@ def _as_float(value: str) -> float | None:
 
 
 def _normalise_limits(low_limit: float | None, high_limit: float | None) -> tuple[float | None, float | None]:
-    """Return mathematical (low, high), even when a fixture labels rows backwards."""
-    limits = [value for value in (low_limit, high_limit) if value is not None]
-    if not limits:
-        return None, None
-    if len(limits) == 1:
-        return limits[0], limits[0]
-    return min(limits), max(limits)
+    """保留 CSV 或事件輸入的 Low Limit / High Limit 原始值。"""
+    return low_limit, high_limit
 
 
 def _as_pass_fail(value: str, soft_bin: int) -> str:

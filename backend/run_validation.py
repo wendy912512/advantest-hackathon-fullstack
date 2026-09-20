@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import argparse
+from concurrent.futures import ProcessPoolExecutor
 from pathlib import Path
 
 from app.anomaly_engine import AnomalyEngine
@@ -27,20 +28,29 @@ TARGET_TESTS = {
 }
 
 
+def validate_one(path: Path) -> tuple[str, list[str], bool]:
+    engine = AnomalyEngine()
+    wafer = path.stem.split("_")[-2]
+    result = engine.evaluate_wafer(read_training_profile(path))
+    kinds = sorted({alert.anomaly_type.value for alert in result.alerts})
+    expected = EXPECTED.get(wafer, set())
+    found_expected = expected.intersection(kinds)
+    is_normal = not expected
+    passed = (not is_normal and bool(found_expected)) or (is_normal and not kinds)
+    return wafer, kinds, passed
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description="Validate anomaly rules against the 25 labeled wafers.")
     parser.add_argument("--data-dir", type=Path, required=True)
+    parser.add_argument("--workers", type=int, default=4, help="parallel wafer workers")
     args = parser.parse_args()
-    engine = AnomalyEngine()
     failed = False
-    for path in sorted(args.data_dir.glob("*_RawResult.csv")):
-        wafer = path.stem.split("_")[-2]
-        result = engine.evaluate_wafer(read_training_profile(path))
-        kinds = sorted({alert.anomaly_type.value for alert in result.alerts})
-        expected = EXPECTED.get(wafer, set())
-        found_expected = expected.intersection(kinds)
-        is_normal = not expected
-        passed = (not is_normal and bool(found_expected)) or (is_normal and not kinds)
+    paths = sorted(args.data_dir.glob("*_RawResult.csv"))
+    worker_count = max(1, min(args.workers, len(paths)))
+    with ProcessPoolExecutor(max_workers=worker_count) as executor:
+        results = list(executor.map(validate_one, paths))
+    for wafer, kinds, passed in results:
         status = "PASS" if passed else "FAIL"
         print(f"{status} {wafer}: {', '.join(kinds) if kinds else 'NORMAL'}")
         if not passed:

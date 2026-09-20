@@ -106,6 +106,9 @@ class RuntimeState:
     anomaly_engine: AnomalyEngine = field(default_factory=AnomalyEngine, repr=False)
     alert_manager: AlertManager = field(default_factory=AlertManager, repr=False)
     live_alerts: list[dict[str, Any]] = field(default_factory=list, repr=False)
+    anomaly_revision: int = field(default=0, repr=False)
+    cached_anomaly_revision: int = field(default=-1, repr=False)
+    cached_anomaly_alerts: list[dict[str, Any]] = field(default_factory=list, repr=False)
     last_wafer_report: dict[str, Any] | None = field(default=None, repr=False)
     lock: RLock = field(default_factory=RLock, repr=False)
 
@@ -116,12 +119,18 @@ class RuntimeState:
             self.devices.clear()
             self.pending_measurements.clear()
             self.live_alerts.clear()
+            self.anomaly_revision += 1
+            self.cached_anomaly_revision = -1
+            self.cached_anomaly_alerts.clear()
             self.last_wafer_report = None
 
     def start_wafer(self, wafer: str, radius: int = 20) -> None:
         with self.lock:
             self.wafer = wafer
             self.wafer_radius = radius
+            self.anomaly_revision += 1
+            self.cached_anomaly_revision = -1
+            self.cached_anomaly_alerts.clear()
 
     def finish_wafer(self) -> dict[str, Any]:
         """Freeze the current wafer summary when ONEAPI emits WAFEREND."""
@@ -170,6 +179,8 @@ class RuntimeState:
             self.lot = result.device.lot or self.lot
             self.wafer = result.device.wafer or self.wafer
             self.devices = self.devices[-2_000:]
+            self.anomaly_revision += 1
+            self.cached_anomaly_revision = -1
 
     def snapshot(self) -> dict[str, Any]:
         with self.lock:
@@ -183,6 +194,8 @@ class RuntimeState:
 
     def anomaly_alerts(self) -> list[dict[str, Any]]:
         with self.lock:
+            if self.cached_anomaly_revision == self.anomaly_revision:
+                return self.live_alerts[-100:] + self.cached_anomaly_alerts
             devices = [entry.model_copy(deep=True) for entry in self.devices]
             lot = self.lot
             wafer = self.wafer
@@ -209,7 +222,12 @@ class RuntimeState:
                     passed=result.pass_,
                 ))
         alerts = [alert.as_dict() for alert in self.anomaly_engine.evaluate_wafer(measurements).alerts]
-        return self.live_alerts[-100:] + alerts
+        with self.lock:
+            if self.anomaly_revision == self.cached_anomaly_revision:
+                return self.live_alerts[-100:] + self.cached_anomaly_alerts
+            self.cached_anomaly_alerts = alerts
+            self.cached_anomaly_revision = self.anomaly_revision
+            return self.live_alerts[-100:] + alerts
 
     def alerts(self) -> list[dict[str, Any]]:
         return self.anomaly_alerts()

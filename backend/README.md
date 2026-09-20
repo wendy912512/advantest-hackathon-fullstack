@@ -70,7 +70,7 @@ python backend/scripts/validate_thermal_model.py --eval-dir path/to/eval-csv
 
 其他需要與工程師確認的假設：
 - 單位：CSV 沒有單位欄，暫定 °C。
-- 上限：CSV 的 `High Limit` / `Low Limit` 兩列是反的（sensor 欄位 High=0、Low=35），`csv_import.py` 統一成 low ≤ high，實際範圍 0~35，上限 35。
+- 限制值：CSV 的 `High Limit` / `Low Limit` 會依原始欄位保存；例如 `220_Main.Suite1#CP` 是 `High=0.6`、`Low=1.8`。目前不對兩個值重新排序，實際欄位語意需再向資料提供方確認。
 - Warning 區間（上限 − 0.1）是暫定值。
 
 舊的 `GET /api/temperature/predict`（site 層級、回傳空值）已不再被前端使用。
@@ -117,6 +117,63 @@ backend/.venv/bin/uvicorn app.main:app --app-dir backend --reload --port 8000
 ```
 
 `run_validation.py` 會逐片讀取 25 片訓練 wafer，確認至少抓到題目標註的 W1 site unbalance、W3/W9 low yield、W14/W18 mean trend、W23/W25 stdev trend。正常 wafer 仍會列出規則可能發出的補充告警，這些需要在實際 demo 前依誤報率再調整。
+
+### 目前異常規則的判斷方式
+
+分析順序以 RawResult 的 device 列順序為準；即時 ONEAPI 串接時，則以
+`touchdown_index`（或確認過的事件時間順序）取代 CSV 列號。
+
+1. **Out of Spec**：每一筆量測值立即與該測項原始的 `Low Limit`、`High Limit`
+   比較。CSV 的兩個欄位會原樣保留，不在程式中交換或排序。
+2. **Low Yield**：以 SBin 判斷通過／失敗；目前 `SBin=6` 是失敗 bin，良率低於
+   `0.80` 且至少有 20 筆分類資料時告警。
+3. **Site Unbalance**：先比較各 Site 的良率；再對同一測項的 Site 平均值做差異檢查。
+   目前至少 5 筆／Site、p-value 門檻 `0.01`、差異至少達 pooled standard
+   deviation 的 3 倍時告警。
+4. **Mean Trend**：將每顆 device 的測項平均值依順序排列，計算線性斜率與 R²。
+   目前至少 8 個點；平均值的正規化斜率至少 `0.00004` 且 R² 至少 `0.05`。
+   訓練資料的方向定義是負斜率對應 `MEAN_TREND_UP`、正斜率對應
+   `MEAN_TREND_DOWN`，這個方向在正式 ONEAPI 上線前仍須用事件時間確認。
+5. **Stdev Trend**：對同一序列計算 rolling standard deviation，再對標準差序列做
+   斜率與 R² 檢查；profile 序列目前使用 `profile_stdev_r2=0.20`、
+   `profile_stdev_normalized_slope=0.0003`。告警 evidence 同時保留普通線性回歸與
+   Theil–Sen robust slope，方便現場追查是否由單一離群值造成。
+
+目前資料驗證已穩定通過 W01、W03、W09、W14、W18、W23，以及所有正常 wafer；
+W25 的 `STDEV_TREND_DOWN` 標籤目前仍無法從 CSV 中以不誤報正常 wafer 的通用規則
+重現。這不是以 W25 名稱或編號做特例，而是保留為待確認的資料定義問題。
+
+### 完整驗證流程（macOS）
+
+在專案根目錄執行：
+
+```bash
+backend/.venv/bin/python -m unittest discover -s backend/tests -t backend
+backend/.venv/bin/python backend/run_validation.py \
+  --data-dir "/Users/linyunhsuan/Desktop/碩士班/梅竹黑客松/training/Data"
+```
+
+第一個指令必須顯示 `OK`。第二個指令會列出 W01～W25 的判定；目前預期是 W01、
+W03、W09、W14、W18、W23 顯示對應異常，W25 顯示 `FAIL W25: NORMAL`，這代表
+程式尚未取得 W25 的正式判斷依據，不代表測試程式當掉。
+
+若要驗證 API 與前端資料流，另開終端機啟動：
+
+```bash
+backend/.venv/bin/uvicorn app.main:app --app-dir backend --port 8000
+```
+
+再確認：
+
+```bash
+curl http://127.0.0.1:8000/health
+curl http://127.0.0.1:8000/api/alerts
+curl http://127.0.0.1:8000/api/dashboard/snapshot
+```
+
+應分別得到 `{"status":"ok"}`、結構化告警陣列與 Dashboard snapshot。瀏覽器開啟
+`http://localhost:8000/api` 可檢查 FastAPI 文件；前端則以 `npm run dev` 啟動後開啟
+`http://localhost:3000`，確認告警面板、Site、Wafer 與 Fail Table 使用同一份資料。
 
 ## 模組分工
 
