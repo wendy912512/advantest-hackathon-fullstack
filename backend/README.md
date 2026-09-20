@@ -44,9 +44,29 @@ $env:ADVANTEST_MOCK_CSV = "off"
 - `POST /api/internal/thermal-progress {"completed": n}`：CSV 匯入時所有數值一次到齊，用這個模擬「即時 wafer 已完成幾個 sensor」（預設 3：sensor1~3 已實測、預測 sensor4）。串 ONEAPI 後應由收到的 sensor 量測事件推算。
 - `python scripts/build_thermal_fixture.py <RawResult.csv>` 產生前端 CSV-derived fallback 用的 fixture（真實 W01 資料 + 後端預測結果）。
 
+### Thermal 模型驗證報告
+
+用目前 API 實際使用的跨 wafer Ridge 模型，執行完整 Leave-One-Wafer-Out 驗證：
+
+```bash
+python backend/scripts/validate_thermal_model.py
+```
+
+報告會輸出到 `backend/reports/thermal_validation.md` 與
+`backend/reports/thermal_validation.json`，包含每個 sensor 的 MAE、RMSE、
+準確度、預測成功、誤報、漏報、每片 wafer 的交叉驗證結果，以及新 wafer
+評估狀態。若有獨立評估資料，可另外執行：
+
+```bash
+python backend/scripts/validate_thermal_model.py --eval-dir path/to/eval-csv
+```
+
+沒有 `--eval-dir` 時，報告會將 W01～W25 的每一折視為一片未見過的新 wafer；
+這是離線的新 wafer 模擬，不會冒充獨立實測結果。
+
 ### ⚠️ 目前的預測模型只是 baseline，請換成正式模型
 
-`predict_sensor()` 是 leave-one-device-out 的 ridge regression：預測 sensorK 只用排在 sensorK **之前**的欄位（較早的 IDDQ 等測項與前面的 sensor）當 feature，不會用到 sensorK 自己或之後的欄位（避免 data leakage）。但它是拿**同一片 wafer** 其他 device 的 sensorK 實測值當訓練資料——真實流程中 sensorK 還沒測，這些值根本拿不到。repo 裡只有 A12345_W01 一片資料，所以先用它當替身，正式模型必須改用 25 片訓練 wafer 訓練。用真實 W01 資料實測，sensor4 的判定為：預測成功 14 / 誤報 23 / 漏報 27 / 正常吻合 16（Warning 區間 ±0.1 是暫定值），準確度還有很大的改進空間。
+目前 `fit_cross_wafer_predictor()` 是跨 wafer 的 Ridge regression：預測 sensorK 只用排在 sensorK **之前**的欄位（較早的 IDDQ 等測項與前面的 sensor）當 feature，不會用到 sensorK 自己或之後的欄位（避免 data leakage）。查看某一片 wafer 時採 Leave-One-Wafer-Out；預測真正的新 wafer 時則使用 W01～W25 全部訓練資料。模型誤差與預測成功/誤報/漏報請以 `validate_thermal_model.py` 產生的報告為準。
 
 其他需要與工程師確認的假設：
 - 單位：CSV 沒有單位欄，暫定 °C。
