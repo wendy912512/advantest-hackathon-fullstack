@@ -36,7 +36,7 @@ import numpy as np
 
 from .schemas import DeviceTestResult, TestResultField
 
-SENSOR_NAME_RE = re.compile(r"\.sensor(\d+)$")
+SENSOR_NAME_RE = re.compile(r"(?:^|[._\s])sensor([1-6])(?=$|[#._\s])", re.IGNORECASE)
 # The production callback may retain generated Flow/Suite names.  These are the
 # stable thermal test numbers used by the training artifacts.
 SENSOR_TEST_NUMBERS = {100: 1, 120: 2, 140: 3, 160: 4, 180: 5, 200: 6}
@@ -65,7 +65,9 @@ logger = logging.getLogger(__name__)
 
 
 def sensor_index(field: TestResultField) -> int | None:
-    match = SENSOR_NAME_RE.search(field.testSuiteName)
+    match = SENSOR_NAME_RE.search(field.testSuiteName.strip())
+    if match is None and field.pinName:
+        match = SENSOR_NAME_RE.search(field.pinName.strip())
     if match:
         return int(match.group(1))
     return SENSOR_TEST_NUMBERS.get(field.testNumber)
@@ -389,7 +391,14 @@ def build_wafer_thermal(
     # 5/6 disappear from the UI until their callback arrived.
     sensor_ids = list(SENSOR_SPECS)
     total = len(sensor_ids)
-    done = total if completed_sensors is None else max(0, min(completed_sensors, total))
+    # Measured values, including complete CSV rows, are authoritative. A stale
+    # wafer-level progress counter must not hide a device's actual readings.
+    done = 0
+    for idx in sensor_ids:
+        if all(idx in found for found in per_device):
+            done += 1
+        else:
+            break
     next_sensor = sensor_ids[done] if done < total else None
 
     sensors_meta = []
@@ -443,7 +452,7 @@ def build_wafer_thermal(
 
         for i in range(n):
             p = None if np.isnan(predicted[i]) else float(predicted[i])
-            a = None if (np.isnan(actual[i]) or stage_state != "verified") else float(actual[i])
+            a = None if np.isnan(actual[i]) else float(actual[i])
             status = "pending" if stage_state == "future" else classify(p, upper)
             device_rows[i]["sensors"].append({
                 "sensor": idx,
