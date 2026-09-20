@@ -28,9 +28,7 @@ def event_meaning(suite: str, pin: str | None) -> str | None:
 
 
 def normalise_limits(low: float | None, high: float | None) -> tuple[float | None, float | None]:
-    """RawResult CSV 的 High/Low Limit 兩列是反的，統一成 low <= high。"""
-    if low is not None and high is not None and low > high:
-        return high, low
+    """保留資料來源的 Low Limit / High Limit 原始值，不重新排序。"""
     return low, high
 
 

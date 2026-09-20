@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import math
-from statistics import mean, pstdev
+from statistics import mean, median, pstdev
 from typing import Sequence
 
 
@@ -27,6 +27,29 @@ def linear_regression(values: Sequence[float]) -> tuple[float, float]:
     total = sum((y - y_mean) ** 2 for y in values)
     r_squared = (slope * slope * denominator / total) if total else 0.0
     return slope, r_squared
+
+
+def theil_sen_regression(values: Sequence[float]) -> tuple[float, float]:
+    """Return a robust (slope, fit score) for equally-spaced observations.
+
+    Theil-Sen uses the median of all pairwise slopes, so one unusually large
+    measurement cannot determine the trend direction by itself.  The second
+    value is a robust R²-like score computed from the median-intercept line.
+    """
+    n = len(values)
+    if n < 2:
+        return 0.0, 0.0
+    slopes = [
+        (values[j] - values[i]) / (j - i)
+        for i in range(n - 1)
+        for j in range(i + 1, n)
+    ]
+    slope = median(slopes)
+    intercept = median(value - slope * index for index, value in enumerate(values))
+    fitted = [intercept + slope * index for index in range(n)]
+    total = sum((value - mean(values)) ** 2 for value in values)
+    score = 1.0 - sum((value - estimate) ** 2 for value, estimate in zip(values, fitted)) / total if total else 0.0
+    return slope, score
 
 
 def rolling_standard_deviations(values: Sequence[float], window: int) -> list[float]:

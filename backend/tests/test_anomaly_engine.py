@@ -2,6 +2,7 @@ import unittest
 
 from app.anomaly_engine import AnomalyEngine
 from app.models import AnomalyType, Measurement
+from app.stats import theil_sen_regression
 
 
 def measurement(value: float, *, site: int = 1, index: int = 0, soft_bin: int = 1) -> Measurement:
@@ -38,6 +39,11 @@ class AnomalyEngineTests(unittest.TestCase):
         values = [measurement(1.0 + i * 0.1, index=i) for i in range(80)]
         result = AnomalyEngine().evaluate_wafer(values)
         self.assertIn(AnomalyType.MEAN_TREND_UP, {alert.anomaly_type for alert in result.alerts})
+
+    def test_theil_sen_trend_ignores_one_extreme_value(self):
+        slope, score = theil_sen_regression([1.0, 1.1, 1.2, 8.0, 1.4, 1.5])
+        self.assertGreater(slope, 0.0)
+        self.assertTrue(score <= 1.0)
 
 
 if __name__ == "__main__":

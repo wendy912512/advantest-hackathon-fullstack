@@ -1,11 +1,21 @@
 from __future__ import annotations
 
 import csv
+import math
 import re
-import statistics
 from pathlib import Path
 
 from .models import Measurement
+
+
+def _mean_and_population_stdev(values: list[float]) -> tuple[float, float]:
+    """Compute both profile statistics in one numeric pass."""
+    count = len(values)
+    total = sum(values)
+    mean = total / count
+    squared_total = sum(value * value for value in values)
+    variance = max(0.0, squared_total / count - mean * mean)
+    return mean, math.sqrt(variance)
 
 
 def read_training_csv(
@@ -45,11 +55,6 @@ def read_training_csv(
                 continue
             high_limit = _number_or_none(high_row[column])
             low_limit = _number_or_none(low_row[column])
-            # Training CSV metadata is named high/low but the supplied fixture has
-            # the two numeric fields reversed. Normalize to mathematical low/high.
-            limits = [item for item in (low_limit, high_limit) if item is not None]
-            normalized_low = min(limits) if limits else None
-            normalized_high = max(limits) if limits else None
             measurements.append(
                 Measurement(
                     tester_id=tester_id,
@@ -59,8 +64,8 @@ def read_training_csv(
                     test_name=header[column],
                     value=value,
                     unit=pin_row[column] or None,
-                    low_limit=normalized_low,
-                    high_limit=normalized_high,
+                    low_limit=low_limit,
+                    high_limit=high_limit,
                     touchdown_index=touchdown_index,
                     x=x,
                     y=y,
@@ -86,14 +91,13 @@ def read_training_profile(path: str | Path, tester_id: str = "testerA") -> list[
         raise ValueError(f"CSV rows are incomplete: {path}")
     header = rows[0]
     data_rows = rows[5:]
+    numeric_rows = [
+        [_number_or_none(value) for value in row[10:]]
+        for row in data_rows
+    ]
     measurements: list[Measurement] = []
-    for touchdown_index, row in enumerate(data_rows):
-        numeric = []
-        for value in row[10:]:
-            try:
-                numeric.append(float(value))
-            except (TypeError, ValueError):
-                continue
+    for touchdown_index, (row, numeric_row) in enumerate(zip(data_rows, numeric_rows)):
+        numeric = [value for value in numeric_row if value is not None]
         if not numeric:
             continue
         common = {
@@ -108,7 +112,7 @@ def read_training_profile(path: str | Path, tester_id: str = "testerA") -> list[
         measurements.append(Measurement(
             **common,
             test_name="__ROW_MEAN__",
-            value=statistics.fmean(numeric),
+            value=sum(numeric) / len(numeric),
             metadata={"aggregate_series": "mean"},
         ))
     groups: dict[str, list[int]] = {}
@@ -118,15 +122,11 @@ def read_training_profile(path: str | Path, tester_id: str = "testerA") -> list[
             groups.setdefault(match.group(1), []).append(column)
     for group, columns in groups.items():
         for sequence_index, column in enumerate(columns):
-            column_values: list[float] = []
-            for row in data_rows:
-                try:
-                    value = float(row[column])
-                except (TypeError, ValueError):
-                    continue
-                column_values.append(value)
+            offset = column - 10
+            column_values = [row[offset] for row in numeric_rows if row[offset] is not None]
             if len(column_values) < 8:
                 continue
+            column_mean, column_stdev = _mean_and_population_stdev(column_values)
             first = data_rows[0]
             common_profile = {
                 "tester_id": tester_id,
@@ -138,13 +138,13 @@ def read_training_profile(path: str | Path, tester_id: str = "testerA") -> list[
             measurements.append(Measurement(
                 **common_profile,
                 test_name=group,
-                value=statistics.fmean(column_values),
+                value=column_mean,
                 metadata={"profile_group": group, "aggregate_series": "mean"},
             ))
             measurements.append(Measurement(
                 **common_profile,
                 test_name=group,
-                value=statistics.pstdev(column_values),
+                value=column_stdev,
                 metadata={"profile_group": group, "aggregate_series": "stdev"},
             ))
     return measurements

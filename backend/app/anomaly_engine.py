@@ -11,6 +11,7 @@ from .stats import (
     linear_regression,
     rolling_standard_deviations,
     standard_deviation,
+    theil_sen_regression,
     welch_like_site_p_value,
 )
 
@@ -175,6 +176,7 @@ class AnomalyEngine:
             scale = abs(mean_value) or 1.0
             normalized_slope = slope / scale
             if r_squared >= self.config.trend_r2 and abs(normalized_slope) >= 0.001:
+                robust_slope, robust_r_squared = theil_sen_regression(trend_samples)
                 anomaly_type = AnomalyType.MEAN_TREND_UP if normalized_slope > 0 else AnomalyType.MEAN_TREND_DOWN
                 first = ordered[0]
                 alerts.append(
@@ -190,6 +192,8 @@ class AnomalyEngine:
                             "slope": slope,
                             "normalizedSlope": normalized_slope,
                             "r2": r_squared,
+                            "robustSlope": robust_slope,
+                            "robustR2": robust_r_squared,
                             "points": len(trend_samples),
                             "batchSize": self.config.trend_batch_size,
                             "rawPoints": len(samples),
@@ -203,6 +207,7 @@ class AnomalyEngine:
             stdev_scale = abs(average(stdevs)) or 1.0
             normalized_stdev_slope = stdev_slope / stdev_scale
             if stdev_r2 >= self.config.trend_r2 and abs(normalized_stdev_slope) >= 0.01:
+                robust_stdev_slope, robust_stdev_r2 = theil_sen_regression(stdevs)
                 anomaly_type = AnomalyType.STDEV_TREND_UP if normalized_stdev_slope > 0 else AnomalyType.STDEV_TREND_DOWN
                 first = ordered[0]
                 alerts.append(
@@ -214,7 +219,14 @@ class AnomalyEngine:
                         lot_id=first.lot_id,
                         wafer_id=first.wafer_id,
                         test_name=test_name,
-                        evidence={"slope": stdev_slope, "normalizedSlope": normalized_stdev_slope, "r2": stdev_r2, "window": self.config.stdev_window},
+                        evidence={
+                            "slope": stdev_slope,
+                            "normalizedSlope": normalized_stdev_slope,
+                            "r2": stdev_r2,
+                            "robustSlope": robust_stdev_slope,
+                            "robustR2": robust_stdev_r2,
+                            "window": self.config.stdev_window,
+                        },
                     )
                 )
         return alerts
@@ -261,6 +273,7 @@ class AnomalyEngine:
                 mean_slope, mean_r2 = linear_regression(means)
                 normalized_mean_slope = mean_slope / (abs(average(means)) or 1.0)
                 if mean_r2 >= 0.05 and abs(normalized_mean_slope) >= self.config.aggregate_mean_normalized_slope:
+                    robust_mean_slope, robust_mean_r2 = theil_sen_regression(means)
                     is_up = mean_slope < 0 if self.config.mean_trend_up_when_slope_negative else mean_slope > 0
                     alerts.append(Alert(
                         anomaly_type=AnomalyType.MEAN_TREND_UP if is_up else AnomalyType.MEAN_TREND_DOWN,
@@ -272,6 +285,8 @@ class AnomalyEngine:
                             "slope": mean_slope,
                             "normalizedSlope": normalized_mean_slope,
                             "r2": mean_r2,
+                            "robustSlope": robust_mean_slope,
+                            "robustR2": robust_mean_r2,
                             "points": len(means),
                             "batchSize": self.config.trend_batch_size,
                             "rawPoints": len(device_means),
@@ -285,13 +300,21 @@ class AnomalyEngine:
                 stdev_slope, stdev_r2 = linear_regression(stdevs)
                 normalized_stdev_slope = stdev_slope / (abs(average(stdevs)) or 1.0)
                 if stdev_r2 >= self.config.profile_stdev_r2 and abs(normalized_stdev_slope) >= self.config.profile_stdev_normalized_slope:
+                    robust_stdev_slope, robust_stdev_r2 = theil_sen_regression(stdevs)
                     alerts.append(Alert(
                         anomaly_type=AnomalyType.STDEV_TREND_UP if stdev_slope > 0 else AnomalyType.STDEV_TREND_DOWN,
                         severity="warning",
                         message=f"{group} Stdev Trend {'Up' if stdev_slope > 0 else 'Down'}：slope={stdev_slope:.4g}, R²={stdev_r2:.2f}",
                         tester_id=first.tester_id, lot_id=first.lot_id, wafer_id=first.wafer_id,
                         test_name=group,
-                        evidence={"slope": stdev_slope, "normalizedSlope": normalized_stdev_slope, "r2": stdev_r2, "window": 1},
+                        evidence={
+                            "slope": stdev_slope,
+                            "normalizedSlope": normalized_stdev_slope,
+                            "r2": stdev_r2,
+                            "robustSlope": robust_stdev_slope,
+                            "robustR2": robust_stdev_r2,
+                            "window": 1,
+                        },
                     ))
 
         return alerts
