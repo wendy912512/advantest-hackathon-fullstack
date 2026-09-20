@@ -218,6 +218,44 @@ export interface WaferThermal {
   devices: DeviceThermal[];
 }
 
+export interface ThermalValidationMetrics {
+  index: number;
+  name: string;
+  unit: string;
+  upperLimit: number | null;
+  samples: number;
+  mae: number | null;
+  rmse: number | null;
+  accuracy: number | null;
+  predictedAlerts: number;
+  actualAlerts: number;
+  hit: number;
+  falseAlarm: number;
+  miss: number;
+  ok: number;
+}
+
+export interface ThermalValidationReport {
+  generatedAt: string;
+  dataset: {
+    trainingWafers: string[];
+    trainingDevices: number;
+    sensorCount: number;
+  };
+  config: {
+    model: string;
+    warnMargin: number;
+    measurementLimit: number;
+  };
+  sensorSummary: Record<string, ThermalValidationMetrics>;
+  overall: Omit<ThermalValidationMetrics, "index" | "name" | "unit" | "upperLimit">;
+  waferFolds: Record<string, Record<string, ThermalValidationMetrics>>;
+  newWaferEvaluation: {
+    status: string;
+    note: string;
+  };
+}
+
 // Sites 頁 Table：只列 Fail 異常資料。每列是「一顆 fail device 的一個超標事件」
 // （event 為 null 表示只有 SBin/HBin 判定失敗、沒有對應的超標測項）。
 // 事件（約 3000 個測項）只有超出上下限的才會出現在 events 下拉選單。

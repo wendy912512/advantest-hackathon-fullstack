@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 from contextlib import asynccontextmanager
+import json
 import os
 from pathlib import Path
 import re
@@ -156,6 +157,23 @@ def thermal_wafer(lot: str, wafer: str) -> dict:
     if data is None:
         raise HTTPException(status_code=404, detail="No sensor data for this wafer")
     return data
+
+
+@app.get("/api/thermal/validation-report")
+def thermal_validation_report() -> dict:
+    """Expose the generated validation artifact for the web dashboard.
+
+    The report is generated offline by ``validate_thermal_model.py``. This
+    endpoint intentionally only serves that artifact; it does not recompute
+    metrics while an operator is viewing the dashboard.
+    """
+    report_path = Path(__file__).resolve().parents[1] / "reports" / "thermal_validation.json"
+    if not report_path.is_file():
+        raise HTTPException(status_code=404, detail="Thermal validation report has not been generated")
+    try:
+        return json.loads(report_path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError) as error:
+        raise HTTPException(status_code=500, detail="Thermal validation report is unreadable") from error
 
 
 @app.websocket("/ws/live-stream")

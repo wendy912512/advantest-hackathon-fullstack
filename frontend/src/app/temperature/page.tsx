@@ -3,9 +3,10 @@
 import { useEffect, useMemo, useState } from "react";
 import { useAppData } from "@/components/providers/AppDataProvider";
 import { useFilterableLots } from "@/hooks/useFilterableLots";
-import type { LotSummary, WaferListItem, WaferThermal } from "@/lib/api";
-import { fetchLotSummary, fetchWaferThermal } from "@/lib/api";
+import type { LotSummary, ThermalValidationReport, WaferListItem, WaferThermal } from "@/lib/api";
+import { fetchLotSummary, fetchThermalValidationReport, fetchWaferThermal } from "@/lib/api";
 import { LotWaferFilter } from "@/components/common/LotWaferFilter";
+import { ThermalValidationReportView } from "@/components/temperature/ThermalValidationReport";
 import { WaferThermalView } from "@/components/temperature/WaferThermalView";
 import { C, MONO } from "@/lib/theme";
 
@@ -19,6 +20,8 @@ export default function TemperaturePage() {
   const [lotSummary, setLotSummary] = useState<LotSummary | undefined>(undefined);
   const [otherThermal, setOtherThermal] = useState<WaferThermal | undefined>(undefined);
   const [loadedKey, setLoadedKey] = useState("");
+  const [validationReport, setValidationReport] = useState<ThermalValidationReport | undefined>(undefined);
+  const [view, setView] = useState<"prediction" | "validation">("prediction");
 
   const isLive = dashboard != null && selectedLot === dashboard.currentLot && selectedWafer === dashboard.currentWafer;
 
@@ -46,6 +49,16 @@ export default function TemperaturePage() {
       cancelled = true;
     };
   }, [selectedLot, selectedWafer, isLive]);
+
+  useEffect(() => {
+    let cancelled = false;
+    fetchThermalValidationReport().then((report) => {
+      if (!cancelled) setValidationReport(report);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   const waferOptions: WaferListItem[] = useMemo(() => {
     const list = [...(lotSummary?.wafers ?? [])];
@@ -94,8 +107,26 @@ export default function TemperaturePage() {
           ? "目前測試中的 wafer：已實測的 sensor 有預測與實際值，正要測的 sensor 只有預測（預測會超標會立刻通知到右側警告欄）。"
           : "非目前測試中的 wafer：顯示預測與正式測試結果，可以看預測準不準。"}
       </div>
+      <div style={{ display: "flex", gap: 4, padding: 4, background: C.surfaceVariant, borderRadius: 10, width: "fit-content", marginBottom: 16 }}>
+        {(["prediction", "validation"] as const).map((item) => {
+          const active = view === item;
+          return (
+            <button key={item} type="button" onClick={() => setView(item)} style={{ padding: "8px 16px", borderRadius: 7, border: "none", cursor: "pointer", fontSize: 13, fontWeight: active ? 600 : 400, background: active ? C.card : "transparent", color: active ? C.text : C.muted, boxShadow: active ? C.shadow : "none" }}>
+              {item === "prediction" ? "即時預測" : "模型驗證"}
+            </button>
+          );
+        })}
+      </div>
 
-      {data ? (
+      {view === "validation" ? (
+        validationReport ? (
+          <ThermalValidationReportView report={validationReport} />
+        ) : (
+          <div style={{ border: `1px dashed ${C.border}`, borderRadius: 12, padding: "32px 20px", textAlign: "center", color: C.muted, fontSize: 13, background: C.card }}>
+            尚未取得模型驗證報告。請先在後端執行 <code>python backend/scripts/validate_thermal_model.py</code> 產生報告。
+          </div>
+        )
+      ) : data ? (
         <WaferThermalView key={`${data.lot}/${data.wafer}/${data.isLive}`} data={data} />
       ) : (
         <div style={{ border: `1px dashed ${C.border}`, borderRadius: 12, padding: "32px 20px", textAlign: "center", color: C.muted, fontSize: 13, background: C.card }}>
