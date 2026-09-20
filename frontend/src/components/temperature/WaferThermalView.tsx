@@ -7,7 +7,7 @@ import { SectionHeader } from "@/components/common/SectionHeader";
 import { formatPid, VERDICT_LABELS } from "@/lib/thermal";
 
 
-const STAGE_LABELS = { verified: "已實測", next: "預測中", future: "未到" } as const;
+const STAGE_LABELS = { verified: "已實測", next: "預測中", future: "等待中" } as const;
 
 function predictionOf(device: DeviceThermal, sensor: number): DeviceSensorPrediction | undefined {
   return device.sensors.find((s) => s.sensor === sensor);
@@ -82,15 +82,14 @@ export function WaferThermalView({ data }: { data: WaferThermal }) {
             <button
               key={s.index}
               onClick={() => setSensorIndex(s.index)}
-              disabled={s.stage === "future"}
-              title={s.stage === "future" ? "還沒輪到這個 sensor，不預測" : s.name}
+              title={s.stage === "future" ? `${s.name}：等待前一顆 Sensor 的實測結果` : s.name}
               style={{
                 padding: "5px 12px",
                 borderRadius: 10,
                 border: `1px solid ${active ? C.blue : C.border}`,
                 background: active ? C.blueBg : C.card,
-                color: s.stage === "future" ? C.dim : active ? C.blue : C.sub,
-                cursor: s.stage === "future" ? "not-allowed" : "pointer",
+                color: s.stage === "future" ? C.muted : active ? C.blue : C.sub,
+                cursor: "pointer",
                 fontFamily: MONO,
                 fontSize: 12,
                 fontWeight: active ? 600 : 400,

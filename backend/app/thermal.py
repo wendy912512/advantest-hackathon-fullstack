@@ -36,6 +36,10 @@ import numpy as np
 from .schemas import DeviceTestResult, TestResultField
 
 SENSOR_NAME_RE = re.compile(r"\.sensor(\d+)$")
+# Production callbacks use generated names such as
+# ``Main.subflow6.Flow6_Suite480`` rather than the CSV's ``Main.sensor6``.
+# The Flow number is the stable six-sensor sequence in that program.
+SENSOR_FLOW_RE = re.compile(r"(?:^|[._])flow([1-6])(?:[._]|$)", re.IGNORECASE)
 # The production callback may retain generated Flow/Suite names.  These are the
 # stable thermal test numbers used by the training artifacts.
 SENSOR_TEST_NUMBERS = {100: 1, 120: 2, 140: 3, 160: 4, 180: 5, 200: 6}
@@ -66,6 +70,9 @@ def sensor_index(field: TestResultField) -> int | None:
     match = SENSOR_NAME_RE.search(field.testSuiteName)
     if match:
         return int(match.group(1))
+    flow_match = SENSOR_FLOW_RE.search(field.testSuiteName)
+    if flow_match:
+        return int(flow_match.group(1))
     return SENSOR_TEST_NUMBERS.get(field.testNumber)
 
 
