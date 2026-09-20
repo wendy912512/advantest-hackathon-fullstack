@@ -36,6 +36,9 @@ import numpy as np
 from .schemas import DeviceTestResult, TestResultField
 
 SENSOR_NAME_RE = re.compile(r"\.sensor(\d+)$")
+# The production callback may retain generated Flow/Suite names.  These are the
+# stable thermal test numbers used by the training artifacts.
+SENSOR_TEST_NUMBERS = {100: 1, 120: 2, 140: 3, 160: 4, 180: 5, 200: 6}
 
 # Warning band below the upper limit (same unit as the sensor). This remains a
 # notification policy, not a model output.
@@ -48,7 +51,9 @@ MODEL_DIR = Path(__file__).resolve().parents[1] / "training" / "models"
 
 def sensor_index(field: TestResultField) -> int | None:
     match = SENSOR_NAME_RE.search(field.testSuiteName)
-    return int(match.group(1)) if match else None
+    if match:
+        return int(match.group(1))
+    return SENSOR_TEST_NUMBERS.get(field.testNumber)
 
 
 def sensor_label(field: TestResultField) -> str:
@@ -286,7 +291,7 @@ def fit_cross_wafer_predictor(
             model, schema = artifact
             matrix = _production_feature_matrix(training_entries + target_rows, target_rows, schema)
             predictor = getattr(model, "booster_", model)
-            return predictor.predict(matrix)
+            return np.asarray(predictor.predict(matrix), dtype=float)
 
     descriptors = _feature_descriptors(training_entries, target_sensor)
     if not descriptors:

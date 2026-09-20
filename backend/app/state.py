@@ -14,7 +14,7 @@ from .events import derive_fail_events, event_id
 from .alert_manager import AlertManager
 from .anomaly_engine import AnomalyEngine
 from .models import Measurement as AnomalyMeasurement
-from .schemas import DeviceTestResult, Measurement, TestResultField
+from .schemas import DeviceInfo, DeviceTestResult, Measurement, TestResultField
 from .thermal import (
     DEFAULT_UNIT,
     build_wafer_thermal,
@@ -147,7 +147,44 @@ class RuntimeState:
 
     def record_measurement(self, measurement: Measurement, set_message=None) -> None:
         with self.lock:
+            if not self.lot or self.lot == "-":
+                self.lot = "LOT-UNKNOWN"
+            if not self.wafer or self.wafer == "-":
+                self.wafer = "FT"
             self.pending_measurements[measurement.site].append(measurement)
+            field = measurement_to_result(measurement)
+            detected = {
+                sensor_index(measurement_to_result(item))
+                for item in self.pending_measurements[measurement.site]
+            }
+            completed = {sensor for sensor in detected if sensor is not None}
+            if completed:
+                self.thermal_completed[(self.lot, self.wafer)] = len(completed)
+
+            # Production FT flows can omit TESTEND.  Keep an in-progress row
+            # visible, then replace it as soon as the genuine terminal event
+            # is received.
+            provisional_pid = f"LIVE-S{measurement.site}"
+            provisional = next((
+                entry for entry in self.devices
+                if entry.device.pid == provisional_pid
+                and entry.device.lot == self.lot
+                and entry.device.wafer == self.wafer
+            ), None)
+            if provisional is None:
+                provisional = DeviceTestResult(device=DeviceInfo(
+                    pid=provisional_pid, lot=self.lot, wafer=self.wafer,
+                    site=measurement.site, x=0, y=0,
+                    pf="PASS" if measurement.passed else "FAIL",
+                    softBin=1 if measurement.passed else 0,
+                    hardBin=1 if measurement.passed else 0,
+                    testTime=now_iso(),
+                ))
+                self.devices.append(provisional)
+            provisional.results.append(field)
+            provisional.failEvents = derive_fail_events(provisional.results)
+            if not measurement.passed:
+                provisional.device.pf = "FAIL"
             alert_measurement = AnomalyMeasurement(
                 tester_id="testerA",
                 lot_id=self.lot,
@@ -175,6 +212,11 @@ class RuntimeState:
             )
             if not result.failEvents:
                 result.failEvents = derive_fail_events(result.results)
+            self.devices = [entry for entry in self.devices if not (
+                entry.device.pid == f"LIVE-S{result.device.site}"
+                and entry.device.lot == result.device.lot
+                and entry.device.wafer == result.device.wafer
+            )]
             self.devices.append(result)
             self.lot = result.device.lot or self.lot
             self.wafer = result.device.wafer or self.wafer
@@ -505,7 +547,7 @@ class RuntimeState:
                 if entry.device.lot == lot
             ]
             is_live = lot == self.lot and wafer == self.wafer
-            completed = self.thermal_completed.get((lot, wafer), 3) if is_live else None
+            completed = self.thermal_completed.get((lot, wafer), 0) if is_live else None
         return build_wafer_thermal(entries, lot, wafer, is_live, completed, now_iso())
 
     def predict_next_sensor(self, request) -> dict[str, Any] | None:
