@@ -45,7 +45,7 @@ async def lifespan(_: FastAPI):
                     lot_override="A12345",
                     wafer_override=wafer,
                     reset=index == 0,
-                    measurement_limit=24,
+                    measurement_limit=2541,
                 )
             except (CsvImportError, OSError):
                 # CSV mock 只是本機示範資料，單一檔案載入失敗時繼續載入其他 wafer。

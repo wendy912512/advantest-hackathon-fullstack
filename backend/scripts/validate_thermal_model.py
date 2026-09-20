@@ -66,7 +66,7 @@ def load_csvs(data_dir: Path, *, lot: str, state: RuntimeState) -> list[DeviceTe
                 lot_override=lot,
                 wafer_override=wafer_from_path(path),
                 reset=index == 0,
-                measurement_limit=24,
+                measurement_limit=2541,
             )
     finally:
         csv_import.runtime_state = original_state
@@ -305,7 +305,13 @@ def main() -> int:
             "trainingDevices": len(training_entries),
             "sensorCount": len(metadata),
         },
-        "config": {"warnMargin": WARN_MARGIN, "model": "cross-wafer Ridge regression", "measurementLimit": 24},
+        "config": {
+            "warnMargin": WARN_MARGIN,
+            "model": "cross-wafer LightGBM (Huber, Top-80 features)",
+            "measurementLimit": 2541,
+            "featureCount": 80,
+            "validation": "Leave-One-Wafer-Out",
+        },
         "sensorSummary": sensor_summary,
         "overall": overall,
         "waferFolds": folds,

@@ -11,32 +11,37 @@ The model is intentionally small and explainable for the hackathon:
 * Features for sensor K are only the values recorded BEFORE sensor K in the
   device's column order (earlier IDDQ/parametric columns + earlier sensors), so
   it never sees sensor K itself or anything after it (no data leakage).
-* For a displayed historical/live wafer, Ridge regression is trained on the
-  other wafers (leave-one-wafer-out), so the selected wafer's target sensor
-  value never becomes a feature or a label for its own prediction.
+* For a displayed historical/live wafer, LightGBM is trained on the other
+  wafers (leave-one-wafer-out), so the selected wafer's target sensor value
+  never becomes a feature or a label for its own prediction.
 * For a genuinely new wafer, ``predict_next_sensor`` trains on all available
   W01-W25 rows and accepts only the prefix results already returned by the
   tester before the next sensor starts.
-* The model output is numeric. Warning/Critical are a separate policy layer.
+* A preliminary LightGBM ranks causal features and the final model keeps only
+  the Top-80 schema. Warning/Critical are a separate policy layer.
 """
 from __future__ import annotations
 
 import re
 from collections.abc import Iterable
+from pathlib import Path
+import pickle
 from typing import Any
 
+from lightgbm import LGBMRegressor
 import numpy as np
 
 from .schemas import DeviceTestResult, TestResultField
 
 SENSOR_NAME_RE = re.compile(r"\.sensor(\d+)$")
 
-# Warning band below the upper limit (same unit as the sensor). Placeholder —
-# needs confirming with the test engineer, see Notion 對齊表.
+# Warning band below the upper limit (same unit as the sensor). This remains a
+# notification policy, not a model output.
 WARN_MARGIN = 0.1
 MIN_TRAIN_DEVICES = 8
-RIDGE_LAMBDA = 10.0
+TOP_FEATURES = 80
 DEFAULT_UNIT = "°C"  # CSV has no unit column; assumed from the task wording.
+MODEL_DIR = Path(__file__).resolve().parents[1] / "models" / "thermal"
 
 
 def sensor_index(field: TestResultField) -> int | None:
@@ -75,29 +80,6 @@ def verdict_for(predicted_status: str, actual: float | None, upper: float | None
     return "ok"  # 預測正常，實測也正常
 
 
-def predict_sensor(features: np.ndarray, target: np.ndarray) -> np.ndarray:
-    """Leave-one-device-out ridge prediction. ``target`` may contain NaN."""
-    n = len(target)
-    predictions = np.full(n, np.nan)
-    known = ~np.isnan(target)
-    if features.shape[1] == 0 or known.sum() < MIN_TRAIN_DEVICES:
-        return predictions
-    for i in range(n):
-        train = known.copy()
-        train[i] = False
-        if train.sum() < MIN_TRAIN_DEVICES - 1:
-            continue
-        a = features[train]
-        mu = a.mean(axis=0)
-        sd = a.std(axis=0) + 1e-9
-        z = (a - mu) / sd
-        y = target[train]
-        y_mean = y.mean()
-        weights = np.linalg.solve(z.T @ z + RIDGE_LAMBDA * np.eye(z.shape[1]), z.T @ (y - y_mean))
-        predictions[i] = y_mean + ((features[i] - mu) / sd) @ weights
-    return predictions
-
-
 def _field_key(field: TestResultField) -> tuple[int, str, str]:
     return (field.testNumber, field.testSuiteName, field.pinName or "")
 
@@ -110,27 +92,86 @@ def _sensor_fields(entry: DeviceTestResult) -> dict[int, tuple[int, TestResultFi
     }
 
 
-def _feature_keys(entries: Iterable[DeviceTestResult], target_sensor: int) -> list[tuple[int, str, str]]:
-    """Stable prefix columns for a sensor, based on the CSV test order."""
+def _feature_descriptors(entries: Iterable[DeviceTestResult], target_sensor: int) -> list[tuple[str, tuple[int, str, str] | None]]:
+    """Build causal prefix features plus physical/context transforms."""
     for entry in entries:
         sensor = _sensor_fields(entry).get(target_sensor)
         if sensor:
             position, _ = sensor
-            return [_field_key(field) for field in entry.results[:position]]
+            prefix = [_field_key(field) for field in entry.results[:position]]
+            descriptors: list[tuple[str, tuple[int, str, str] | None]] = [("raw", key) for key in prefix]
+            descriptors.extend(("log_iddq", key) for key in prefix if "iddq" in key[1].lower())
+            descriptors.append(("touchdown_index", None))
+            return descriptors
     return []
 
 
 def _feature_matrix(
     entries: list[DeviceTestResult],
-    keys: list[tuple[int, str, str]],
+    descriptors: list[tuple[str, tuple[int, str, str] | None]],
 ) -> np.ndarray:
+    if not entries:
+        return np.empty((0, len(descriptors)), dtype=float)
+    ordered = sorted(entries, key=lambda entry: (entry.device.wafer, entry.device.testTime, entry.device.pid))
+    touchdown = {id(entry): index for index, entry in enumerate(ordered)}
     rows: list[list[float]] = []
     for entry in entries:
         values = {_field_key(field): field.value for field in entry.results if field.value is not None}
-        rows.append([np.nan if values.get(key) is None else float(values[key]) for key in keys])
-    if not rows:
-        return np.empty((0, len(keys)), dtype=float)
+        row: list[float] = []
+        for kind, key in descriptors:
+            if kind == "touchdown_index":
+                row.append(float(touchdown[id(entry)]))
+                continue
+            value = values.get(key) if key is not None else None
+            if value is None:
+                row.append(np.nan)
+            elif kind == "log_iddq":
+                row.append(float(np.log(max(abs(float(value)), 1e-12))))
+            else:
+                row.append(float(value))
+        rows.append(row)
     return np.asarray(rows, dtype=float)
+
+
+def _select_top_features(train_x: np.ndarray, y: np.ndarray, descriptors: list[tuple[str, tuple[int, str, str] | None]]) -> list[int]:
+    usable = ~np.isnan(train_x).all(axis=0)
+    if not usable.any():
+        return []
+    x = train_x[:, usable]
+    model = LGBMRegressor(
+        objective="huber",
+        n_estimators=100,
+        learning_rate=0.05,
+        num_leaves=10,
+        min_child_samples=20,
+        reg_lambda=5.0,
+        colsample_bytree=0.75,
+        verbosity=-1,
+        force_col_wise=True,
+        random_state=42,
+    )
+    model.fit(x, y)
+    candidates = np.flatnonzero(usable)
+    ranked = candidates[np.argsort(model.feature_importances_)[::-1]]
+    return ranked[: min(TOP_FEATURES, len(ranked))].tolist()
+
+
+def _fit_lightgbm(train_x: np.ndarray, y: np.ndarray, selected: list[int]) -> LGBMRegressor:
+    x = train_x[:, selected]
+    model = LGBMRegressor(
+        objective="huber",
+        n_estimators=240,
+        learning_rate=0.035,
+        num_leaves=10,
+        min_child_samples=20,
+        reg_lambda=5.0,
+        colsample_bytree=0.7,
+        verbosity=-1,
+        force_col_wise=True,
+        random_state=42,
+    )
+    model.fit(x, y)
+    return model
 
 
 def fit_cross_wafer_predictor(
@@ -140,20 +181,19 @@ def fit_cross_wafer_predictor(
     *,
     target_entry: DeviceTestResult | None = None,
 ) -> np.ndarray:
-    """Train on complete wafers and predict the target wafer/device rows.
+    """Train a causal Top-80 LightGBM regressor and predict target rows.
 
-    Missing prefix values are imputed from the training columns. This keeps the
-    API usable while a tester is still streaming measurements, when a few
-    optional parametric items may not have arrived for every device.
+    Only columns before the target sensor are eligible. Feature selection and
+    fitting both use training wafers only, so a held-out wafer cannot leak into
+    the schema or model. Missing prefix values are median-imputed from training.
     """
-    keys = _feature_keys(target_entries or ([target_entry] if target_entry else []), target_sensor)
-    if not keys:
-        keys = _feature_keys(training_entries, target_sensor)
-    if not keys:
+    descriptors = _feature_descriptors(training_entries, target_sensor)
+    if not descriptors:
         return np.full(len(target_entries) if target_entries else 1, np.nan)
 
-    train_x = _feature_matrix(training_entries, keys)
-    target_x = _feature_matrix(target_entries, keys) if target_entries else _feature_matrix([target_entry], keys)  # type: ignore[list-item]
+    train_x = _feature_matrix(training_entries, descriptors)
+    target_rows = target_entries if target_entries else ([target_entry] if target_entry else [])
+    target_x = _feature_matrix(target_rows, descriptors)
     labels: list[float] = []
     label_rows: list[int] = []
     for row_index, entry in enumerate(training_entries):
@@ -161,24 +201,24 @@ def fit_cross_wafer_predictor(
         if field and field[1].value is not None:
             label_rows.append(row_index)
             labels.append(float(field[1].value))
+    output_size = len(target_rows) if target_rows else 1
     if not label_rows or train_x.shape[1] == 0:
-        return np.full(len(target_entries) if target_entries else 1, np.nan)
+        return np.full(output_size, np.nan)
 
     train_x = train_x[label_rows]
     y = np.asarray(labels, dtype=float)
-    usable_columns = ~np.isnan(train_x).all(axis=0)
-    if not usable_columns.any() or len(y) < MIN_TRAIN_DEVICES:
-        return np.full(len(target_entries) if target_entries else 1, np.nan)
-    train_x = train_x[:, usable_columns]
-    target_x = target_x[:, usable_columns]
+    if len(y) < MIN_TRAIN_DEVICES:
+        return np.full(output_size, np.nan)
+    selected = _select_top_features(train_x, y, descriptors)
+    if not selected:
+        return np.full(output_size, np.nan)
+    train_x = train_x[:, selected]
+    target_x = target_x[:, selected]
     column_means = np.nanmean(train_x, axis=0)
     train_x = np.where(np.isnan(train_x), column_means, train_x)
     target_x = np.where(np.isnan(target_x), column_means, target_x)
-    mu = train_x.mean(axis=0)
-    sd = train_x.std(axis=0) + 1e-9
-    z = (train_x - mu) / sd
-    weights = np.linalg.solve(z.T @ z + RIDGE_LAMBDA * np.eye(z.shape[1]), z.T @ (y - y.mean()))
-    return y.mean() + ((target_x - mu) / sd) @ weights
+    model = _fit_lightgbm(train_x, y, list(range(train_x.shape[1])))
+    return model.predict(target_x)
 
 
 def build_wafer_thermal(

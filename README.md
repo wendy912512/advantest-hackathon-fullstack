@@ -74,7 +74,7 @@ py -m uvicorn app.main:app --reload --port 8080
 curl -X POST "http://127.0.0.1:8080/api/internal/import-csv?path=C:\advantest-hackathon-fullstack\backend\data\A12345_W01_RawResult.csv&reset=true&measurement_limit=24"
 ```
 
-官方 RawResult CSV 每顆 Device 有數千個測項；即時 API 預設載入 24 個有效數值測項，避免瀏覽器回傳過大。完整 CSV 保留在 `backend\data\`，供後續分析或模型使用。到 ACS 正式串接 OneAPI callback 時，不需要匯入 CSV。
+官方 RawResult CSV 每顆 Device 有數千個測項；後端匯入完整的模型前綴欄位供 LightGBM 做 Top-80 特徵選擇，API 回傳仍只呈現必要的預測結果。到 ACS 正式串接 OneAPI callback 時，不需要匯入 CSV。
 
 ## 目前整合狀態
 

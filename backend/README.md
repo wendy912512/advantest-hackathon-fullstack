@@ -46,7 +46,7 @@ $env:ADVANTEST_MOCK_CSV = "off"
 
 ### Thermal 模型驗證報告
 
-用目前 API 實際使用的跨 wafer Ridge 模型，執行完整 Leave-One-Wafer-Out 驗證：
+用目前 API 實際使用的跨 wafer LightGBM 模型，執行完整 Leave-One-Wafer-Out 驗證：
 
 ```bash
 python backend/scripts/validate_thermal_model.py
@@ -66,7 +66,7 @@ python backend/scripts/validate_thermal_model.py --eval-dir path/to/eval-csv
 
 ### ⚠️ 目前的預測模型只是 baseline，請換成正式模型
 
-目前 `fit_cross_wafer_predictor()` 是跨 wafer 的 Ridge regression：預測 sensorK 只用排在 sensorK **之前**的欄位（較早的 IDDQ 等測項與前面的 sensor）當 feature，不會用到 sensorK 自己或之後的欄位（避免 data leakage）。查看某一片 wafer 時採 Leave-One-Wafer-Out；預測真正的新 wafer 時則使用 W01～W25 全部訓練資料。模型誤差與預測成功/誤報/漏報請以 `validate_thermal_model.py` 產生的報告為準。
+目前 `fit_cross_wafer_predictor()` 是跨 wafer 的 LightGBM：預測 sensorK 只用排在 sensorK **之前**的欄位，加上 IDDQ 對數與 touchdown index 特徵，先以訓練 wafer 做特徵重要度排序，再保留 Top-80；不會用到 sensorK 自己或之後的欄位（避免 data leakage）。查看某一片 wafer 時採 Leave-One-Wafer-Out；預測真正的新 wafer 時則使用 W01～W25 全部訓練資料。模型誤差與預測成功/誤報/漏報請以 `validate_thermal_model.py` 產生的報告為準。
 
 其他需要與工程師確認的假設：
 - 單位：CSV 沒有單位欄，暫定 °C。
