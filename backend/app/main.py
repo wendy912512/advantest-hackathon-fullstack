@@ -297,6 +297,8 @@ def ingest_measurement(event: Measurement) -> None:
 def ingest_test_end(event: DeviceTestResult) -> None:
     # FT 測試流程不會發出 WAFERSTART，仍需提供可查詢的資料分組給網頁。
     # 只在 OneAPI 沒有送出 wafer 時標記為 FT；CP 的真實 Wafer ID 不會改寫。
+    if not event.device.lot or event.device.lot == "-":
+        event.device.lot = "LOT-UNKNOWN"
     if not event.device.wafer or event.device.wafer == "-":
         event.device.wafer = "FT"
     runtime_state.record_test_end(event)

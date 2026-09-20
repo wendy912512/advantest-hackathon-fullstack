@@ -2,8 +2,8 @@
 
 Flow this implements (see docs / Notion "場景二"):
 
-  已完成的測試資料 -> 在「下一個 sensor 測試執行前」對整片 wafer 的每個 device
-  分別預測 -> 預測超過門檻立即產生通知 -> sensor 實測完成後回填實際值、算誤差、
+  已完成的測試資料 -> 在「下一個 sensor 測試執行前」只對當下正在測的
+  device 預測 -> 預測超過門檻立即產生通知 -> sensor 實測完成後回填實際值、算誤差、
   判定「預測成功 / 誤報 / 漏報」。
 
 The model is intentionally small and explainable for the hackathon:
@@ -36,6 +36,26 @@ import numpy as np
 from .schemas import DeviceTestResult, TestResultField
 
 SENSOR_NAME_RE = re.compile(r"\.sensor(\d+)$")
+# Production callbacks use generated names such as
+# ``Main.subflow6.Flow6_Suite480`` rather than the CSV's ``Main.sensor6``.
+# The Flow number is the stable six-sensor sequence in that program.
+SENSOR_FLOW_RE = re.compile(r"(?:^|[._])flow([1-6])(?:[._]|$)", re.IGNORECASE)
+# The production callback may retain generated Flow/Suite names.  These are the
+# stable thermal test numbers used by the training artifacts.
+SENSOR_TEST_NUMBERS = {100: 1, 120: 2, 140: 3, 160: 4, 180: 5, 200: 6}
+# The tester does not always emit a field for sensors that have not started
+# yet.  The dashboard contract is nevertheless a fixed six-step flow, so keep
+# canonical metadata for every sensor and fill in the observed limits/name when
+# a real callback arrives.
+SENSOR_SPECS = {
+    1: (100, "Main.sensor1", "CP"),
+    2: (120, "Main.sensor2", "DS0"),
+    3: (140, "Main.sensor3", "IO4"),
+    4: (160, "Main.sensor4", "IO1"),
+    5: (180, "Main.sensor5", "IO2"),
+    6: (200, "Main.sensor6", "IO3"),
+}
+DEFAULT_SENSOR_UPPER_LIMIT = 35.0
 
 # Warning band below the upper limit (same unit as the sensor). This remains a
 # notification policy, not a model output.
@@ -48,7 +68,12 @@ MODEL_DIR = Path(__file__).resolve().parents[1] / "training" / "models"
 
 def sensor_index(field: TestResultField) -> int | None:
     match = SENSOR_NAME_RE.search(field.testSuiteName)
-    return int(match.group(1)) if match else None
+    if match:
+        return int(match.group(1))
+    flow_match = SENSOR_FLOW_RE.search(field.testSuiteName)
+    if flow_match:
+        return int(flow_match.group(1))
+    return SENSOR_TEST_NUMBERS.get(field.testNumber)
 
 
 def sensor_label(field: TestResultField) -> str:
@@ -286,7 +311,7 @@ def fit_cross_wafer_predictor(
             model, schema = artifact
             matrix = _production_feature_matrix(training_entries + target_rows, target_rows, schema)
             predictor = getattr(model, "booster_", model)
-            return predictor.predict(matrix)
+            return np.asarray(predictor.predict(matrix), dtype=float)
 
     descriptors = _feature_descriptors(training_entries, target_sensor)
     if not descriptors:
@@ -337,6 +362,16 @@ def build_wafer_thermal(
     (historical wafer: predictions AND official results).
     """
     target_entries = [entry for entry in entries if entry.device.wafer == wafer]
+    # A live dashboard must describe the device currently under test, not
+    # retrospectively predict every completed device on the wafer.  The bridge
+    # creates one short-lived LIVE-S<site> row per active site and replaces it
+    # with the genuine TESTEND record when that device finishes.
+    if is_live:
+        active_entries = [
+            entry for entry in target_entries if entry.device.pid.startswith("LIVE-S")
+        ]
+        if active_entries:
+            target_entries = active_entries
     if not target_entries:
         return None
 
@@ -353,7 +388,9 @@ def build_wafer_thermal(
     if not all_sensors:
         return None
 
-    sensor_ids = sorted(all_sensors)
+    # Always return all six columns.  Using only ``all_sensors`` made sensors
+    # 5/6 disappear from the UI until their callback arrived.
+    sensor_ids = list(SENSOR_SPECS)
     total = len(sensor_ids)
     done = total if completed_sensors is None else max(0, min(completed_sensors, total))
     next_sensor = sensor_ids[done] if done < total else None
@@ -361,20 +398,21 @@ def build_wafer_thermal(
     sensors_meta = []
     limits: dict[int, float | None] = {}
     for idx in sensor_ids:
-        field = all_sensors[idx]
-        bounds = [b for b in (field.highLimit, field.lowLimit) if b is not None]
+        field = all_sensors.get(idx)
+        bounds = [b for b in (field.highLimit, field.lowLimit) if b is not None] if field else []
         # The RawResult CSV's "High Limit" / "Low Limit" rows are swapped
         # (High row < Low row), so take the larger bound as the upper limit.
-        upper = max(bounds) if bounds else None
+        upper = max(bounds) if bounds else DEFAULT_SENSOR_UPPER_LIMIT
         limits[idx] = upper
         stage = "verified" if sensor_ids.index(idx) < done else ("next" if idx == next_sensor else "future")
+        test_number, suite_name, pin_name = SENSOR_SPECS[idx]
         sensors_meta.append({
             "index": idx,
-            "name": sensor_label(field),
-            "testNumber": field.testNumber,
+            "name": sensor_label(field) if field else f"{test_number}_{suite_name}#{pin_name}",
+            "testNumber": field.testNumber if field else test_number,
             "upperLimit": upper,
             "warnThreshold": None if upper is None else upper - WARN_MARGIN,
-            "unit": field.unit or DEFAULT_UNIT,
+            "unit": field.unit if field and field.unit else DEFAULT_UNIT,
             "stage": stage,
         })
 

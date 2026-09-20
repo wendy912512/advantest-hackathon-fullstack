@@ -15,7 +15,7 @@ from .alert_manager import AlertManager
 from .anomaly_engine import AnomalyEngine
 from .csv_adapter import read_training_profile
 from .models import Measurement as AnomalyMeasurement
-from .schemas import DeviceTestResult, Measurement, TestResultField
+from .schemas import DeviceInfo, DeviceTestResult, Measurement, TestResultField
 from .thermal import (
     DEFAULT_UNIT,
     build_wafer_thermal,
@@ -102,7 +102,7 @@ class RuntimeState:
     )
     # 即時 wafer 已完成幾個 sensor 測試（ONEAPI 串接後應由收到的 sensor 量測事件
     # 推算；CSV 匯入時所有數值一次到齊，所以用 /api/internal/thermal-progress
-    # 模擬進度）。沒設定時預設 3：sensor1~3 已實測、正要預測 sensor4。
+    # 模擬進度）。沒設定時從 sensor1 開始，避免介面一進來就跳到 sensor4。
     thermal_completed: dict[tuple[str, str], int] = field(default_factory=dict)
     anomaly_engine: AnomalyEngine = field(default_factory=AnomalyEngine, repr=False)
     alert_manager: AlertManager = field(default_factory=AlertManager, repr=False)
@@ -165,7 +165,48 @@ class RuntimeState:
 
     def record_measurement(self, measurement: Measurement, set_message=None) -> None:
         with self.lock:
+            if not self.lot or self.lot == "-":
+                self.lot = "LOT-UNKNOWN"
+            if not self.wafer or self.wafer == "-":
+                self.wafer = "FT"
             self.pending_measurements[measurement.site].append(measurement)
+            field = measurement_to_result(measurement)
+            # A stage is completed only when every active site has emitted it.
+            # Taking the current site's count made the UI jump backwards while
+            # sites reported the same sensor out of order.
+            sensor_sets = []
+            for pending in self.pending_measurements.values():
+                detected = {sensor_index(measurement_to_result(item)) for item in pending}
+                sensor_sets.append({sensor for sensor in detected if sensor is not None})
+            if sensor_sets:
+                self.thermal_completed[(self.lot, self.wafer)] = min(
+                    len(sensors) for sensors in sensor_sets
+                )
+
+            # Production FT flows can omit TESTEND.  Keep an in-progress row
+            # visible, then replace it as soon as the genuine terminal event
+            # is received.
+            provisional_pid = f"LIVE-S{measurement.site}"
+            provisional = next((
+                entry for entry in self.devices
+                if entry.device.pid == provisional_pid
+                and entry.device.lot == self.lot
+                and entry.device.wafer == self.wafer
+            ), None)
+            if provisional is None:
+                provisional = DeviceTestResult(device=DeviceInfo(
+                    pid=provisional_pid, lot=self.lot, wafer=self.wafer,
+                    site=measurement.site, x=0, y=0,
+                    pf="PASS" if measurement.passed else "FAIL",
+                    softBin=1 if measurement.passed else 0,
+                    hardBin=1 if measurement.passed else 0,
+                    testTime=now_iso(),
+                ))
+                self.devices.append(provisional)
+            provisional.results.append(field)
+            provisional.failEvents = derive_fail_events(provisional.results)
+            if not measurement.passed:
+                provisional.device.pf = "FAIL"
             alert_measurement = AnomalyMeasurement(
                 tester_id="testerA",
                 lot_id=self.lot,
@@ -193,6 +234,11 @@ class RuntimeState:
             )
             if not result.failEvents:
                 result.failEvents = derive_fail_events(result.results)
+            self.devices = [entry for entry in self.devices if not (
+                entry.device.pid == f"LIVE-S{result.device.site}"
+                and entry.device.lot == result.device.lot
+                and entry.device.wafer == result.device.wafer
+            )]
             self.devices.append(result)
             self.lot = result.device.lot or self.lot
             self.wafer = result.device.wafer or self.wafer
@@ -535,7 +581,7 @@ class RuntimeState:
                 if entry.device.lot == lot
             ]
             is_live = lot == self.lot and wafer == self.wafer
-            completed = self.thermal_completed.get((lot, wafer), 3) if is_live else None
+            completed = self.thermal_completed.get((lot, wafer), 0) if is_live else None
         return build_wafer_thermal(entries, lot, wafer, is_live, completed, now_iso())
 
     def predict_next_sensor(self, request) -> dict[str, Any] | None:
