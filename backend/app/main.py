@@ -116,6 +116,7 @@ async def lifespan(_: FastAPI):
                     reset=index == 0,
                     measurement_limit=24,
                     collect_fail_events=False,
+                    include_model_features=True,
                 )
             except (CsvImportError, OSError):
                 # CSV mock 只是本機示範資料，單一檔案載入失敗時繼續載入其他 wafer。
@@ -334,6 +335,7 @@ def import_local_csv(
             wafer_override=wafer,
             reset=reset,
             measurement_limit=max(1, min(measurement_limit, 100)),
+            include_model_features=True,
         )
     except CsvImportError as error:
         raise HTTPException(status_code=400, detail=str(error)) from error

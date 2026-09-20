@@ -23,6 +23,7 @@ The model is intentionally small and explainable for the hackathon:
 from __future__ import annotations
 
 import re
+import logging
 from collections.abc import Iterable
 import json
 from pathlib import Path
@@ -36,10 +37,6 @@ import numpy as np
 from .schemas import DeviceTestResult, TestResultField
 
 SENSOR_NAME_RE = re.compile(r"\.sensor(\d+)$")
-# Production callbacks use generated names such as
-# ``Main.subflow6.Flow6_Suite480`` rather than the CSV's ``Main.sensor6``.
-# The Flow number is the stable six-sensor sequence in that program.
-SENSOR_FLOW_RE = re.compile(r"(?:^|[._])flow([1-6])(?:[._]|$)", re.IGNORECASE)
 # The production callback may retain generated Flow/Suite names.  These are the
 # stable thermal test numbers used by the training artifacts.
 SENSOR_TEST_NUMBERS = {100: 1, 120: 2, 140: 3, 160: 4, 180: 5, 200: 6}
@@ -64,15 +61,13 @@ MIN_TRAIN_DEVICES = 8
 TOP_FEATURES = 80
 DEFAULT_UNIT = "°C"  # CSV has no unit column; assumed from the task wording.
 MODEL_DIR = Path(__file__).resolve().parents[1] / "training" / "models"
+logger = logging.getLogger(__name__)
 
 
 def sensor_index(field: TestResultField) -> int | None:
     match = SENSOR_NAME_RE.search(field.testSuiteName)
     if match:
         return int(match.group(1))
-    flow_match = SENSOR_FLOW_RE.search(field.testSuiteName)
-    if flow_match:
-        return int(flow_match.group(1))
     return SENSOR_TEST_NUMBERS.get(field.testNumber)
 
 
@@ -298,7 +293,7 @@ def fit_cross_wafer_predictor(
     target_entry: DeviceTestResult | None = None,
     use_production_model: bool = False,
 ) -> np.ndarray:
-    """Train a causal Top-80 LightGBM regressor and predict target rows.
+    """Use persisted artifacts for serving; refit only for offline validation.
 
     Only columns before the target sensor are eligible. Feature selection and
     fitting both use training wafers only, so a held-out wafer cannot leak into
@@ -312,6 +307,8 @@ def fit_cross_wafer_predictor(
             matrix = _production_feature_matrix(training_entries + target_rows, target_rows, schema)
             predictor = getattr(model, "booster_", model)
             return np.asarray(predictor.predict(matrix), dtype=float)
+        logger.error("Thermal model artifact unavailable for sensor %s in %s", target_sensor, MODEL_DIR)
+        return np.full(len(target_rows), np.nan)
 
     descriptors = _feature_descriptors(training_entries, target_sensor)
     if not descriptors:
@@ -441,7 +438,7 @@ def build_wafer_thermal(
                 training_entries,
                 target_entries,
                 idx,
-                use_production_model=is_live,
+                use_production_model=True,
             )
 
         for i in range(n):
