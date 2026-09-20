@@ -9,9 +9,9 @@ import { IconAlertTriangle, IconCircleX } from "@tabler/icons-react";
 type NotifFilter = "all" | "critical" | "warning";
 
 const SOURCE_LABELS: Record<AlertSource, string> = {
-  trend: "趨勢",
-  thermal: "溫度",
-  failure: "失敗原因",
+  trend: "趨勢異常",
+  thermal: "溫度預測",
+  failure: "測試失敗",
 };
 
 function AlertCard({ alert, isLatest, flash }: { alert: UnifiedAlert; isLatest: boolean; flash: boolean }) {
